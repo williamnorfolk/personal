@@ -1,0 +1,28 @@
+---
+title: "William Norfolk Personal Website"
+author: "William Norfolk, PhD Candidate" 
+institution: "Department of Evironmental Health Science, University of Georgia"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+
+```{r me, out.height = "30%", out.width = "30%", echo=FALSE}
+knitr::include_graphics("./headshot.jpg") 
+```
+
+# {.tabset}
+
+## General
+
+Greetings, and welcome to William Norfolk's personal webpage! William is a forth year PhD candidate at the University of Georgia working under the advisement of Dr. Erin Lipp in the Department of Environmental Health Science. Originally from Virginia, William received his BS in Biology from the University of Mary Washington in 2021 and his MS in Environmental Science and Policy from George Mason University in 2015. 
+
+## Current Research
+
+## Protocols
+
+## Publications
+
+## CV & Contact
