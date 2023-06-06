@@ -1,0 +1,277 @@
+---
+title: "polar_pathway_analysis"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(fuzzyjoin)
+library(data.table)
+library(writexl)
+```
+```{r}
+raw_path <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 1)
+raw_names <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 2)
+
+pathways <- raw_path %>% left_join(raw_names)
+
+```
+
+
+
+```{r}
+pathways <- pathways %>%
+  mutate(pathway_perc_hit = hits/total_metabolites*100) %>%
+  mutate(group_type = case_when(
+    .$sub_pathway == "Amino Acid Metabolism" ~ "1",
+    .$sub_pathway == "Carbohydrate Metabolism" ~ "2",
+    .$sub_pathway == "Lipid Metabolism" ~ "3",
+    .$sub_pathway == "Metabolism of Cofactors and Vitamins" ~ "4",
+    .$sub_pathway == "Metabolism of Other Amino Acids" ~ "5",
+    .$sub_pathway == "Biosynthesis of Other Secondary Metabolites" ~ "6",
+    .$sub_pathway == "Nucleotide Metabolism" ~ "7",
+    .$sub_pathway == "Metabolism of Terpenoids and Polyketides" ~ "8",
+    .$sub_pathway == "Energy Metabolism" ~ "9",
+    .$sub_pathway == "Xenobiotics biodegradation and metabolism" ~ "10",
+    .$sub_pathway == "Translation" ~ "11",
+    TRUE ~ "ERROR"    ))
+
+pathways$group_type <- as.numeric(as.character(pathways$group_type))
+```
+
+facet_grid(batch ~ ., space="free_x", scales="free_y", switch="y") +
+theme(strip.placement = "outside",
+      strip.background = element_rect(fill=NA,colour=NA),
+      panel.spacing=unit(0,"cm"), axis.title.y = element_blank()) +
+annotation_custom(grob = linesGrob(), xmin = -0.75, xmax = -0.75, ymin = -3.25, ymax = -0.75) +
+coord_cartesian(clip="off") 
+
+```{r}
+colors<- colorRampPalette(c("blue", "white", "red"), 100)
+
+pathways$up_regulated_when <- factor(pathways$up_regulated_when, 
+  levels = c("Fe+NS/Fe-NS", "Fe-NS/Fe+NS", "Fe+S/Fe-S", "Fe-S/Fe+S", "Fe+NS/Fe+S", "Fe+S/Fe+NS", "Fe-NS/Fe-S", "Fe-S/Fe-NS"))
+
+pathways$sub_pathway <- factor(pathways$sub_pathway, 
+                                     levels = c("Amino Acid Metabolism", "Carbohydrate Metabolism", "Lipid Metabolism" , "Metabolism of Cofactors and Vitamins", "Metabolism of Other Amino Acids","Biosynthesis of Other Secondary Metabolites",  "Nucleotide Metabolism", "Metabolism of Terpenoids and Polyketides", "Energy Metabolism", "Xenobiotics biodegradation and metabolism", "Translation"))
+
+```
+
+```{r}
+#normalization equation
+pathways <- pathways %>% mutate(range = total_metabolites-1) %>%
+  mutate(norm_val = (hits - 1)/range)
+```
+
+```{r}
+#remove all paths with only one hit
+pathways <- pathways[!(pathways$hits <= 1), ]
+```
+
+
+```{r, fig.width=12, fig.height=12}
+pathways %>% ggplot() +
+  geom_tile(aes(x = up_regulated_when, y = reorder(pathway_name, group_type), fill = hits), 
+            color = "black", width = 0.75)+
+  geom_text(aes(x = up_regulated_when, y = reorder(pathway_name, group_type), 
+                label = paste0(hits, "/", total_metabolites), fill = hits), color ="black", size = 4)+
+facet_grid(sub_pathway ~ ., scales="free_y", space = "free_y")+
+scale_fill_gradient(low = "white", high = "firebrick3") +
+  xlab("Culture Comparison") +
+  ylab("Metabolic Pathway") +
+  labs(fill = "Pathway Hits")+
+  theme_hc()+
+  ylab("")+
+  xlab("")+
+  theme(strip.placement = "outside",
+        strip.text.y.right = element_text(angle = 0, size = 13),
+        strip.background = element_rect(color = "black"),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 11.5, angle = 90, vjust = 0.5)) 
+
+
+pathways %>% ggplot() +
+  geom_tile(aes(x = up_regulated_when, y = reorder(pathway_name, group_type), fill = norm_val), 
+            color = "black", width = 0.75)+
+  geom_text(aes(x = up_regulated_when, y = reorder(pathway_name, group_type), 
+                label = round(norm_val,2), fill = norm_val), color ="black", size = 3.75)+
+facet_grid(sub_pathway ~ ., scales="free_y", space = "free_y")+
+scale_fill_gradient(low = "white", high = "firebrick3") +
+  xlab("Culture Comparison") +
+  ylab("Metabolic Pathway") +
+  labs(fill = "Normalized Pathway Hits")+
+  theme_hc()+
+  ylab("")+
+  xlab("")+
+  theme(strip.placement = "outside",
+        strip.text.y.right = element_text(angle = 0, size = 13),
+        strip.background = element_rect(color = "lightgrey"),
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 11.5, angle = 90, vjust = 0.5),
+        legend.key.size = unit(1, 'cm')) 
+```
+
+```{r, fig.width=9}
+pathways %>% ggplot() +
+  geom_bar(aes(x = hits, y = sub_pathway, fill = up_regulated_when),
+             stat = "identity")+
+  theme_hc()+
+  scale_size_continuous(guide = "none")+
+  ylab("KEGG Pathway Type")+
+  xlab("Pathway Hits")+
+  labs(fill = "Comparison")
+```
+
+
+
+```{r}
+pathways %>% ggplot() +
+  geom_point(aes(x = impact, y = raw_p_value, color = sub_pathway, size = hits),
+             stat = "identity", alpha = 0.5)+
+  theme_bw()+
+  scale_size_continuous(guide = "none")+
+  ylab("P-Value")+
+  xlab("Impact Factor")+
+  labs(color = "Comparison")
+
+pathways %>% ggplot() +
+  geom_point(aes(x = impact, y = raw_p_value, color = up_regulated_when, size = hits),
+             stat = "identity", alpha = 0.5)+
+  theme_bw()+
+  scale_size_continuous(guide = "none")+
+  ylab("P-Value")+
+  xlab("Impact Factor")+
+  labs(color = "Comparison")
+```
+
+
+```{r}
+ns_iron <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 3) %>% left_join(raw_names) %>%
+  mutate(up_regulated_when = recode(up_regulated_when,
+                                    "up" = "Iron Replete",
+                                    "down" = "Iron Deficient"))
+
+ns_iron <- ns_iron[!(ns_iron$hits <= 1), ]
+
+zz <- c("Metabolism of Terpenoids and Polyketides", "Metabolism of Terpenoids and Polyketides")
+zzz <- c("Iron Replete", "Iron Deficient")
+zzzz <- c(NA, NA)
+
+dummy <- data.frame(zz, zzz, zzzz) %>% as_tibble() %>%
+  rename(sub_pathway = zz,
+         up_regulated_when = zzz,
+         hits = zzzz)
+
+ns_iron <- ns_iron %>% select(sub_pathway, hits, up_regulated_when) %>%
+  group_by(sub_pathway, up_regulated_when) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rbind(dummy)
+
+
+ns_iron %>% ggplot() +
+  geom_bar(aes(x = hits, y = sub_pathway, fill = sub_pathway), stat = "identity") +
+  geom_text(aes(x = hits, y = sub_pathway, fill = sub_pathway, label = paste0("N = ", hits)),
+            size = 3, hjust = -0.1)+
+  facet_wrap(~up_regulated_when)+
+  scale_x_continuous(breaks = seq(0,45,10), limits = c(0,45))+
+  theme_bw()+
+  theme(legend.position = "none") +
+  xlab("Subpathway Hits") +
+  ylab("Subpathway Type")
+```
+
+```{r}
+s_iron <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 4) %>% left_join(raw_names) %>%
+  mutate(up_regulated_when = recode(up_regulated_when,
+                                    "up" = "Iron Replete",
+                                    "down" = "Iron Deficient"))
+
+s_iron <- s_iron[!(s_iron$hits <= 1), ]
+
+s_iron <- s_iron %>% select(sub_pathway, hits, up_regulated_when) %>%
+  group_by(sub_pathway, up_regulated_when) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+s_iron %>% ggplot() +
+  geom_bar(aes(x = hits, y = sub_pathway, fill = sub_pathway), stat = "identity") +
+  geom_text(aes(x = hits, y = sub_pathway, fill = sub_pathway, label = paste0("N = ", hits)),
+            size = 3, hjust = -0.1)+
+  facet_wrap(~up_regulated_when)+
+  scale_x_continuous(breaks = seq(0,45,10), limits = c(0,45))+
+  theme_bw()+
+  theme(legend.position = "none") +
+  xlab("Subpathway Hits") +
+  ylab("Subpathway Type")
+```
+
+```{r}
+y_starve <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 5) %>% left_join(raw_names) %>%
+  mutate(up_regulated_when = recode(up_regulated_when,
+                                    "up" = "Not Starved",
+                                    "down" = "Iron Starved"))
+
+y_starve <- y_starve[!(y_starve$hits <= 1), ]
+
+y_starve <- y_starve %>% select(sub_pathway, hits, up_regulated_when) %>%
+  group_by(sub_pathway, up_regulated_when) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+y_starve %>% ggplot() +
+  geom_bar(aes(x = hits, y = sub_pathway, fill = sub_pathway), stat = "identity") +
+  geom_text(aes(x = hits, y = sub_pathway, fill = sub_pathway, label = paste0("N = ", hits)),
+            size = 3, hjust = -0.1)+
+  facet_wrap(~up_regulated_when)+
+  scale_x_continuous(breaks = seq(0,45,10), limits = c(0,45))+
+  theme_bw()+
+  theme(legend.position = "none") +
+  xlab("Subpathway Hits") +
+  ylab("Subpathway Type")
+```
+
+```{r}
+n_starve <- read_excel("./master_metabolite_lists/CLEAN_POLAR_PATHWAYS.xlsx", 6) %>% left_join(raw_names) %>%
+  mutate(up_regulated_when = recode(up_regulated_when,
+                                    "up" = "Not Starved",
+                                    "down" = "Iron Starved"))
+
+n_starve <- n_starve[!(n_starve$hits <= 1), ]
+
+zz <- c("Metabolism of Terpenoids and Polyketides", "Metabolism of Terpenoids and Polyketides", "Nucleotide Metabolism", "Nucleotide Metabolism", "Metabolism of Other Amino Acids", "Metabolism of Other Amino Acids", "Lipid Metabolism", "Lipid Metabolism", "Metabolism of Cofactors and Vitamins", "Metabolism of Cofactors and Vitamins", "Energy Metabolism", "Energy Metabolism", "Carbohydrate Metabolism", "Carbohydrate Metabolism")
+
+zzz <- c("Iron Starved", "Not Starved","Iron Starved", "Not Starved", "Iron Starved", "Not Starved", "Iron Starved", "Not Starved", "Iron Starved", "Not Starved", "Iron Starved", "Not Starved", "Iron Starved", "Not Starved")
+
+zzzz <- c(NA, NA,NA, NA,NA, NA,NA, NA,NA, NA,NA, NA,NA, NA)
+
+dummy <- data.frame(zz, zzz, zzzz) %>% as_tibble() %>%
+  rename(sub_pathway = zz,
+         up_regulated_when = zzz,
+         hits = zzzz)
+
+n_starve <- n_starve %>% select(sub_pathway, hits, up_regulated_when) %>%
+  group_by(sub_pathway, up_regulated_when) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rbind(dummy)
+
+n_starve %>% ggplot() +
+  geom_bar(aes(x = hits, y = sub_pathway, fill = sub_pathway), stat = "identity") +
+  geom_text(aes(x = hits, y = sub_pathway, fill = sub_pathway, label = paste0("N = ", hits)),
+            size = 3, hjust = -0.1)+
+  facet_wrap(~up_regulated_when)+
+  scale_x_continuous(breaks = seq(0,45,10), limits = c(0,45))+
+  theme_bw()+
+  theme(legend.position = "none") +
+  xlab("Subpathway Hits") +
+  ylab("Subpathway Type")
+```
+
+
+
+
+
+
+

@@ -1,0 +1,946 @@
+---
+title: "metagenomic_amr_analysis_8_15_22"
+output: html_document
+---
+
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-26)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+#mash_data$est_counts <- as.numeric(as.character(mash_data$est_counts))
+#mash_data$tpm <- as.numeric(as.character(mash_data$tpm))
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+enrich_meta <- list.files("./raw_data/All_metagenomic_enriched_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+unenriched_meta <- list.files("./raw_data/All_metagenomic_unenriched_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+gsub_enrich_meta <- "^.{0,54}"
+
+gsub_unenrich_meta <- "^.{0,56}"
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_amr_enrich_meta <- mash_data(enrich_meta, gsub_enrich_meta) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_enrich_meta$participant_id <- gsub("-", "", mash_amr_enrich_meta$participant_id)
+
+mash_amr_unenrich_meta <- mash_data(unenriched_meta, gsub_unenrich_meta) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_unenrich_meta$participant_id <- gsub("-", "", mash_amr_unenrich_meta$participant_id)
+
+```
+
+
+
+```{r}
+enrich_clean <- mash_amr_enrich_meta %>% mutate(count = 1)
+
+enrich_clean <- enrich_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(age = substr(participant_id, 1, 1)) %>%
+  mutate(enrichment = "Enriched")
+
+
+unenrich_clean <- mash_amr_unenrich_meta %>% mutate(count = 1)
+
+unenrich_clean <- unenrich_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(age = substr(participant_id, 1, 1)) %>%
+  mutate(enrichment = "Unenriched")
+
+```
+
+
+```{r}
+library(randomcoloR)
+set.seed(5785)
+color2 <- randomcoloR::distinctColorPalette(k = 18)
+
+pal <- colorRampPalette(c("red", "white", "blue"))(100)
+
+```
+
+```{r}
+count_enrich_ids <- n_distinct(enrich_clean$participant_id)
+
+detect_enrich <- enrich_clean %>% select(-c(age, participant_id)) %>%
+  rename(count_hits = count) %>%
+  mutate(count_classes = 1) %>%
+  group_by(class, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(perc_of_participants = count_classes/count_enrich_ids*100)
+
+count_unenrich_ids <- n_distinct(unenrich_clean$participant_id)
+
+detect_unenrich <- unenrich_clean %>% select(-c(age, participant_id)) %>%
+  rename(count_hits = count) %>%
+  mutate(count_classes = 1) %>%
+  group_by(class, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(perc_of_participants = count_classes/count_enrich_ids*100)
+
+detect_all <- rbind(detect_enrich, detect_unenrich)
+```
+
+```{r}
+#xx <- order_vec
+```
+
+
+```{r}
+order_vec <- c("TETRACYCLINE", "AMINOGLYCOSIDE", "MACROLIDE", "BETA-LACTAM", "GLYCOPEPTIDE", "TRIMETHOPRIM", "LINCOSAMIDE", "STREPTOTHRICIN", "PHENICOL", "LINCOSAMIDE/STREPTOGRAMIN", "SULFONAMIDE", "QUATERNARY AMMONIUM","FOSFOMYCIN", "PHENICOL/QUINOLONE", "QUINOLONE", "MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN", "BLEOMYCIN", "NITROIMIDAZOLE", "AMINOGLYCOSIDE/QUINOLONE")
+```
+
+
+```{r}
+detect_all %>% ggplot() +
+  geom_tile(aes(x = enrichment, y = reorder(class, perc_of_participants), fill = perc_of_participants), 
+            width =0.8, height = 0.8, size = 0.7, color = "black", alpha = 0.65)+
+  geom_text(aes(x = enrichment, y = reorder(class, perc_of_participants), 
+                fill = perc_of_participants, label = paste0(round(perc_of_participants, 2), " %")), size = 3.5)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("") +
+  ylab("AMR Class")+
+  labs(fill = "Percent of Participants\nDetected In")+
+  theme(axis.text.x = element_text(size = 10))
+ # ggtitle("Detected AMR Gene Classes (Metagenomic)")
+
+detect_all$class <- factor(detect_all$class, levels = order_vec)
+
+detect_all %>% ggplot() +
+  geom_tile(aes(x = enrichment, y = class, fill = perc_of_participants), 
+            width =0.8, height = 0.8, size = 0.7, color = "black", alpha = 0.65)+
+  geom_text(aes(x = enrichment, y = class, 
+                fill = perc_of_participants, label = paste0(round(perc_of_participants, 2), " %")), size = 3.5)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Library Preparation Method") +
+  ylab("AMR Class")+
+  labs(fill = "Percent of Participants\nDetected In")+
+  theme(axis.text.x = element_text(size = 10))
+```
+
+
+
+
+
+```{r, fig.width=10}
+enrich_clean %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color2)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 2, vjust = 0, hjust = 0.75),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+  ggtitle("Enriched Metagenomic-AMR ARGs Detected")
+
+
+unenrich_clean %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color2)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 2, vjust = 0, hjust = 0.75),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+  ggtitle("Unenriched Metagenomic-AMR ARGs Detected")
+```
+
+
+```{r, fig.width=10}
+enrich_all <- rbind(enrich_clean, unenrich_clean)
+
+enrich_all$class <- factor(enrich_all$class, levels = order_vec)
+
+enrich_all %>% ggplot() +
+  geom_tile(aes(x = class, y = participant_id, fill = count), width =1, height = 1, size = 1)+
+  facet_wrap(~enrichment)+
+  theme_classic() +
+  scale_fill_gradientn(colors = pal)+
+  xlab("AMR Class") +
+  ylab("Participant ID")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust =1, size = 7, vjust = 0.5))
+```
+
+
+```{r}
+enrich_betalac <- mash_amr_enrich_meta %>% subset(class == "BETA-LACTAM") %>%
+  mutate(enrichment = "Enriched") %>%
+  select(c(participant_id, gene_symbol, enrichment)) %>%
+  mutate(hit_count = 1) %>%
+  group_by(participant_id, gene_symbol, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(participant_count = 1) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(perc_of_participants = participant_count/count_enrich_ids*100)
+
+unenrich_betalac <- mash_amr_unenrich_meta %>% subset(class == "BETA-LACTAM") %>%
+  mutate(enrichment = "Unenriched")%>%
+  select(c(participant_id, gene_symbol, enrichment)) %>%
+  mutate(hit_count = 1) %>%
+  group_by(participant_id, gene_symbol, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(participant_count = 1) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol, enrichment) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  mutate(perc_of_participants = participant_count/count_unenrich_ids*100)
+
+betalac_all <-rbind(enrich_betalac, unenrich_betalac)
+```
+
+
+
+```{r, fig.width=8}
+betalac_all %>% ggplot() +
+  geom_tile(aes(x = enrichment, y = reorder(gene_symbol, perc_of_participants), fill = perc_of_participants), 
+            width =0.8, height = 0.8, size = 0.7, alpha = 0.65)+
+  geom_text(aes(x = enrichment, y = reorder(gene_symbol, perc_of_participants), 
+                fill = perc_of_participants, label = paste0(round(perc_of_participants, 2), " %")), size = 2)+
+  theme_bw() +
+  scale_fill_gradientn(colors = pal)+
+  xlab("") +
+  ylab("Beta-Lactam Gene")+
+  labs(fill = "Percent of Participants\nDetected In")+
+  theme(axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 7))
+ # ggtitle("Detected AMR Gene Classes (Metagenomic)")
+```
+
+**********************************Risk Factors*****************************************************
+
+```{r}
+all_args <- enrich_clean %>%select(c(participant_id, count, age, enrichment)) %>%
+  group_by(participant_id, age, enrichment) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup()
+
+esbl_ids <- readRDS("../esbl_ids.rds") %>%
+  mutate(esbl = "ESBL Positive",
+         count = 1) %>%
+  group_by(participant_id, esbl) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  select(-count)
+
+all_args <- all_args %>% left_join(esbl_ids)
+all_args$esbl[is.na(all_args$esbl)] <- "ESBL Negative"
+
+all_args %>% ggplot() +
+  geom_boxplot(aes(x = esbl, y = count, fill = esbl))+
+  theme_hc()+
+  xlab("ESBL Status")+
+  ylab("Total AMR Gene Hits")+
+  theme(legend.position = "none")+
+  annotate("text", x = 1.25, y = 15, label = "Mean = 27.70")+
+  annotate("text", x = 2.25, y = 15, label = "Mean = 29.00")
+```
+
+
+```{r}
+all_args %>% ggplot() +
+  geom_bar(aes(x = reorder(participant_id, -count), y = count, fill = esbl), stat = "identity")
+
+
+ss <- all_args %>% select(c(count, esbl)) %>%
+  group_by(esbl) %>%
+  summarize(ave = mean(count)) %>%
+  ungroup()
+```
+
+
+
+
+```{r, fig.width=8}
+all_args_class <- enrich_clean %>%select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup()
+
+all_args_class <- all_args_class %>% left_join(esbl_ids)
+all_args_class$esbl[is.na(all_args_class$esbl)] <- "ESBL Negative"
+
+
+participant_id<-  c("place","place", "place")
+class <-  c("BLEOMYCIN","MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN", "AMINOGLYCOSIDE/QUINOLONE")
+count <-  c(0,0,0)
+esbl <- c("ESBL Positive", "ESBL Positive", "ESBL Negative")
+
+add_these <- data.frame(participant_id, class, count, esbl)
+
+all_args_class_plot <- rbind(all_args_class, add_these)
+
+```
+
+```{r}
+all_args_class_test <- all_args_class %>% select(-participant_id)
+
+yes_esbl <- all_args_class_test %>% subset(esbl == "ESBL Positive")
+test_esbl <- yes_esbl %>% subset(class == "BETA-LACTAM")
+z1 <- test_esbl$count
+
+
+no_esbl <- all_args_class_test %>% subset(esbl == "ESBL Negative")
+test_nonesbl <- no_esbl %>% subset(class == "BETA-LACTAM")
+z2 <- test_nonesbl$count
+
+print("betalac")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "AMINOGLYCOSIDE")
+test_nonesbl <- no_esbl %>% subset(class == "AMINOGLYCOSIDE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("aminoglycoside")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "GLYCOPEPTIDE")
+test_nonesbl <- no_esbl %>% subset(class == "GLYCOPEPTIDE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("glycopeptide")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "MACROLIDE")
+test_nonesbl <- no_esbl %>% subset(class == "MACROLIDE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("macrolide")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "TETRACYCLINE")
+test_nonesbl <- no_esbl %>% subset(class == "TETRACYCLINE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("tetracycline")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "TRIMETHOPRIM")
+test_nonesbl <- no_esbl %>% subset(class == "TRIMETHOPRIM")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("trimethoprim")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "QUINOLONE")
+test_nonesbl <- no_esbl %>% subset(class == "QUINOLONE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("QUINOLONE")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "PHENICOL")
+test_nonesbl <- no_esbl %>% subset(class == "PHENICOL")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("PHENICOL")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "SULFONAMIDE")
+test_nonesbl <- no_esbl %>% subset(class == "SULFONAMIDE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("SULFONAMIDE")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "LINCOSAMIDE")
+test_nonesbl <- no_esbl %>% subset(class == "LINCOSAMIDE")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("LINCOSAMIDE")
+wilcox.test(z1, z2)
+
+test_esbl <- yes_esbl %>% subset(class == "QUATERNARY AMMONIUM")
+test_nonesbl <- no_esbl %>% subset(class == "QUATERNARY AMMONIUM")
+z1 <- test_esbl$count
+z2 <- test_nonesbl$count
+
+print("QUATERNARY AMMONIUM")
+wilcox.test(z1, z2)
+
+```
+
+
+
+```{r}
+all_args_class_plot %>% ggplot() +
+  geom_boxplot(aes(y = class, x = count, fill = esbl, color = esbl), position = position_dodge(), drop = FALSE)+
+  theme_hc()+
+  xlab("AMR Class Gene Hits")+
+  ylab("AMR Class")+
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = seq(0, 15, 5), limits = c(0, 15))
+ # scale_fill_discrete(drop=FALSE)
+  #theme(axis.text.x = element_text(angle = 90, size = 6, vjust = 0.5))
+
+
+
+```
+
+
+
+
+```{r}
+culture_clean <- read.csv("../culture_clean.csv") %>% select(-c(X, cre, age, esbl)) %>%
+  mutate(half_total = total_isolates/2,
+         amp_high = case_when(
+           .$amp_resistant_isolates > half_total ~ 1,
+           TRUE ~ 0))%>%
+  mutate(tetra_high = case_when(
+           .$tetra_resistant_isolates > half_total ~ 1,
+           TRUE ~ 0)) %>%
+  mutate(trimet_high = case_when(
+           .$trimet_resistant_isolates > half_total ~ 1,
+           TRUE ~ 0)) %>%
+mutate(ceft_high = case_when(
+           .$ceft_resistant_isolates > half_total ~ 1,
+           TRUE ~ 0)) %>%
+mutate(cipro_high = case_when(
+           .$cipro_resistant_isolates > half_total ~ 1,
+           TRUE ~ 0)) %>%
+  select(-c(amp_resistant_isolates, tetra_resistant_isolates, trimet_resistant_isolates, cipro_resistant_isolates, ceft_resistant_isolates)) %>%
+  mutate(high_resist = amp_high+tetra_high+cipro_high+ceft_high+trimet_high) #%>%
+ #select(-c(amp_high, tetra_high, trimet_high, cipro_high, ceft_high))
+
+```
+
+```{r}
+
+all_betalac_compare <- mash_amr_enrich_meta %>% subset(class == "BETA-LACTAM") %>%
+  mutate(hit_count = 1) %>%
+  select(c(participant_id, gene_symbol, hit_count)) %>%
+  group_by(participant_id, gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  left_join(esbl_ids) #%>%
+ # left_join(culture_clean)
+
+all_betalac_compare$esbl[is.na(all_betalac_compare$esbl)] <- "ESBL Negative"
+
+all_people <- n_distinct(all_betalac_compare$participant_id)
+
+```
+
+```{r}
+count_people <- all_betalac_compare %>% select(c(participant_id, gene_symbol)) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, gene_symbol)%>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/all_people*100) %>%
+  mutate(pop_type = "Total Population")
+```
+
+```{r}
+count_people_esbl <- all_betalac_compare %>% select(c(participant_id, gene_symbol)) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, gene_symbol)%>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  left_join(esbl_ids) %>%
+  subset(esbl == "ESBL Positive")%>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/22*100) %>% #22 esbls in this population
+  mutate(pop_type = "ESBL Positive")
+```
+
+
+```{r}
+count_resist_lab <- all_betalac_compare %>% select(c(participant_id, gene_symbol)) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, gene_symbol)%>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  left_join(culture_clean) 
+  
+#57 people with no culturable ecoli
+no_ecoli_pop <-  count_resist_lab %>% subset(ecoli_cultured == "No") %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/57*100) %>% 
+  mutate(pop_type = "No Culturable E. coli")
+  
+  
+#118 people with high amp resistance
+high_amp_pop <-  count_resist_lab %>% subset(amp_high == 1) %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/118*100) %>% 
+  mutate(pop_type = "High Ampicillin Resistance")
+
+#107 people with high tetra resistance
+high_tetra_pop <-  count_resist_lab %>% subset(tetra_high == 1) %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/107*100) %>% 
+  mutate(pop_type = "High Tetracycline Resistance")
+
+#69 people with high trimet resistance
+high_trimet_pop <-  count_resist_lab %>% subset(trimet_high == 1) %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/69*100) %>% 
+  mutate(pop_type = "High Trimethoprim Resistance")
+
+#12 people with high ceft resistance
+high_ceft_pop <-  count_resist_lab %>% subset(ceft_high == 1) %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/12*100) %>% 
+  mutate(pop_type = "High Ceftriaxone Resistance")
+
+#9 people with high cipro resistance
+high_cipro_pop <-  count_resist_lab %>% subset(cipro_high == 1) %>%
+  select(participant_id, gene_symbol, count) %>%
+  select(-participant_id) %>%
+  group_by(gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(people_count = count) %>%
+  mutate(pop_prev = people_count/9*100) %>% 
+  mutate(pop_type = "High Ciprofloxacin Resistance")
+```
+
+```{r}
+pal44 <- colorRampPalette(c("red", "white", "green", "blue"))(100)
+
+```
+
+
+```{r, fig.width=10}
+people_fig <- rbind(count_people, count_people_esbl, no_ecoli_pop, high_amp_pop, high_tetra_pop, high_trimet_pop, high_ceft_pop, high_cipro_pop)
+
+people_fig$pop_type <- factor(people_fig$pop_type, levels = c("Total Population", "ESBL Positive", "No Culturable E. coli", "High Ampicillin Resistance", "High Tetracycline Resistance", "High Trimethoprim Resistance", "High Ceftriaxone Resistance", "High Ciprofloxacin Resistance"))
+
+people_fig %>% ggplot() +
+  geom_tile(aes(x = pop_type, y = reorder(gene_symbol, pop_prev), fill = pop_prev), 
+            width =0.8, height = 0.8, size = 0.7, alpha = 0.65)+
+  geom_text(aes(x = pop_type, y = reorder(gene_symbol, pop_prev), fill = pop_prev, 
+                label = paste0(round(pop_prev, 2), " %")), size = 2)+
+  theme_bw() +
+  scale_fill_gradientn(colors = pal44)+
+  xlab("") +
+  ylab("Beta-Lactam Gene")+
+  labs(fill = "Percent of Population\nGene Detected In")+
+  theme(axis.text.x = element_text(size = 8.5, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 8))
+ # ggtitle("Detected AMR Gene Classes (Metagenomic)")
+```
+
+
+```{r}
+#pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+
+```
+
+
+```{r}
+all_betalac_compare %>%
+  ggplot() +
+  geom_tile(aes(x = esbl, y = gene_symbol, fill = hit_count)) +
+  theme(axis.text.y = element_text(size = 5))+
+  scale_fill_gradientn(colors = pal)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+stop()
+```
+
+
+
+
+*****************************************************************************************************************
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, biological_sex, ethnicity, race, age, gi_symptoms_past_48_hours, food_poisioning_past_month, symptoms_past_3_to_30_days, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, biological_sex, ethnicity, race, age, gi_symptoms_past_48_hours, food_poisioning_past_month, symptoms_past_3_to_30_days, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#combine
+all_survey <- rbind(adult_survey, child_survey)
+
+#pivot to longer and pull IDs
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(all_survey) %>%
+  pivot_wider(names_from = "class", values_from = "count")# %>% 
+  #select(-participant_id)
+
+#mask NAs as no response 
+pivot_mash <- pivot_mash[!is.na(pivot_mash$biological_sex), ] #remove participants not in data
+pivot_mash$gi_symptoms_past_48_hours[is.na(pivot_mash$gi_symptoms_past_48_hours)] <- "No"
+pivot_mash$uti_past_month[is.na(pivot_mash$uti_past_month)] <- "No"
+pivot_mash$any_antibiotic_past_week[is.na(pivot_mash$any_antibiotic_past_week)] <- "No"
+pivot_mash$any_antibiotics_past_month[is.na(pivot_mash$any_antibiotics_past_month)] <- "No"
+pivot_mash$healthcare_exposure[is.na(pivot_mash$healthcare_exposure)] <- "No"
+
+
+```
+
+```{r}
+#case when odd survey responses
+pivot_mash <- pivot_mash %>% mutate(gi_sym = case_when(
+  .$gi_symptoms_past_48_hours == "I have not had any of the above symptoms" ~ "No",
+  .$gi_symptoms_past_48_hours == "My child has not had any of the above symptoms" ~ "No",
+  .$gi_symptoms_past_48_hours == "No Response" ~ "No",
+  TRUE ~ "Yes")) %>%
+  mutate(gi_sym = case_when(
+    .$symptoms_past_3_to_30_days == "Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Diarrhea" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Diarrhea,Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Diarrhea" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Diarrhea,Constipation" ~ "Yes",
+    TRUE ~ gi_sym)) %>%
+  mutate(food_p = case_when(
+    .$food_poisioning_past_month == "No" ~ "No",
+    TRUE ~ "Yes")) %>%
+  mutate(uti = case_when(
+    .$uti_past_month == "My child did not have a urinary tract infection" ~ "No",
+    .$uti_past_month == "No" ~ "No",
+    TRUE ~ "Yes")) %>%
+  mutate(take_ab = case_when(
+    .$any_antibiotic_past_week == "No" ~"No",
+    TRUE ~ "Yes")) %>%
+  mutate(take_ab = case_when(
+    .$any_antibiotics_past_month == "Yes, oral antibiotics" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, antibiotics through an IV,No" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, topical antibiotics (excluding first aid ointment)" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, oral antibiotics,No" ~ "Yes",
+    TRUE ~ take_ab)) %>%
+  mutate(health_exp = case_when(
+    .$healthcare_exposure == "No" ~ "No",
+    .$healthcare_exposure == "No, my child does not have regular exposure to healthcare environments" ~ "No",
+    .$healthcare_exposure == "No, I do not have regular exposure to healthcare environments" ~ "No",
+    TRUE ~ "Yes")) %>% 
+  select(-c(gi_symptoms_past_48_hours, symptoms_past_3_to_30_days, food_poisioning_past_month, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_demo <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)
+
+
+dd <- clean_corr_demo %>% select(-participant_id)
+```
+
+```{r, fig.width=10}
+library(ggcorrplot)
+
+check <- model.matrix(~0+., data=dd)
+
+model.matrix(~0+., data=dd) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, regular_exposure_to_env_risk))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, regular_exposure_to_env_risk))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+space <- separate(all_survey, 'regular_exposure_to_env_risk', paste("risk", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id),names_to = "temp", values_to = "env_risk")
+
+remove_extras <- stack[!is.na(stack$env_risk), ]
+
+remove_extras <- remove_extras %>% mutate(env_risk = case_when(
+  .$env_risk == "I do not have regular exposure to any of these choices" ~ "No regular exposure",
+  .$env_risk == "My child does not have regular exposure to any of these choices" ~ "No regular exposure",
+  .$env_risk == "Childcare facilities and/or extensive contact with children <6 yrs" ~ "Childcare facilities",
+  TRUE ~ env_risk)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(remove_extras) %>%
+  pivot_wider(names_from = "class", values_from = "count")# %>% 
+  #select(-participant_id)
+
+pivot_mash$env_risk[is.na(pivot_mash$env_risk)] <- "No regular exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_env <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)
+```
+
+```{r, fig.width=10}
+check <- model.matrix(~0+., data=test)
+
+model.matrix(~0+., data=clean_corr_env) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, treated_recreational_water_sources))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, treated_recreational_water_sources))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+#treated water
+space <- separate(all_survey, 'treated_recreational_water_sources', paste("treated", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id), names_to = "temp", values_to = "treated")
+
+remove_extras <- stack[!is.na(stack$treated), ]
+
+remove_extras <- remove_extras %>% mutate(treated = case_when(
+  .$treated == "I was not exposed to treated recreational water" ~ "No exposure",
+  .$treated == "My child was not exposed to treated recreational water" ~ "No exposure",
+  .$treated == "\tNeighborhood/city/public pool" ~ "Neighborhood/city/public pool",
+  TRUE ~ treated)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(remove_extras) %>%
+  pivot_wider(names_from = "class", values_from = "count") #%>% 
+  #select(-participant_id)
+
+pivot_mash$treated[is.na(pivot_mash$treated)] <- "No exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_twater <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)
+
+```
+
+```{r}
+
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, untreated_recreational_water_sources))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, untreated_recreational_water_sources))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+#untreated water
+space <- separate(all_survey, 'untreated_recreational_water_sources', paste("untreated", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id), names_to = "temp", values_to = "untreated")
+
+remove_extras <- stack[!is.na(stack$untreated), ]
+
+remove_extras <- remove_extras %>% mutate(untreated = case_when(
+  .$untreated == "I was not exposed to untreated recreational water" ~ "No exposure",
+  .$untreated == "My child was not exposed to untreated recreational water" ~ "No exposure",
+  .$untreated == "\tStream/river (designated swimming area)" ~ "Stream/river",
+  .$untreated == "\tOcean (designated swimming area)" ~ "Ocean",
+  .$untreated == "Ocean (not designated swimming area)" ~ "Ocean",
+  .$untreated == "Ocean (designated swimming area)" ~ "Ocean",
+  .$untreated == "Stream/river (designated swimming area)" ~ "Stream/river",
+  .$untreated == "Stream/river (not designated swimming area)" ~ "Stream/river",
+  .$untreated == "Freshwater lake or pond (designated swimming area)" ~ "Freshwater lake or pond",
+  .$untreated == "Freshwater lake or pond (not designated swimming area)" ~ "Freshwater lake or pond",
+  TRUE ~ untreated)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% 
+  pivot_wider(names_from = "class", values_from = "count") %>%
+  full_join(remove_extras)#%>% 
+  #select(-participant_id)
+
+pivot_mash$untreated[is.na(pivot_mash$untreated)] <- "No exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_uwater <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)
+
+```
+
+```{r, fig.width=10}
+xx <- full_join(clean_corr_twater, clean_corr_env) %>%
+  full_join(clean_corr_uwater) %>%
+  left_join(clean_corr_demo) %>%
+  select(-participant_id)
+
+xx <- xx[, c(25,1:24,26:31)]
+
+model.matrix(~0+., data=xx) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+```{r}
+saveRDS(all_args_class, "all_args_class.rds")
+```
+
+
+
+
+
+
+
+
+
+

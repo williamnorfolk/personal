@@ -1,0 +1,209 @@
+---
+title: "power_lines_mixtures_delta"
+output: html_document
+---
+
+
+```{r}
+#load in libs
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(ggfortify)
+library(ggforce)
+```
+
+```{r}
+#raw <- read_excel("./raw_data/Delta_Illumina_amp_IRMA_clean_09.15.2021.xlsx")
+raw <- readRDS("./raw_data/mixtures/delta_clean_mix_amp_BWA_10.20.2021.rds")
+#tag total rows in the dataset
+total_rows <- nrow(raw)
+```
+
+```{r}
+#beautify columns
+clean_the_cols <- function(df) {
+  
+  temp <- str_split_fixed(df$sample, "_", 5) %>% 
+  as_tibble() %>%
+  mutate(tag = 1:total_rows) %>% 
+  rename(mix_ratio = "V1",
+         primer = "V2",
+         paired_ends = "V3",
+         errors = "V4",
+         replicate = "V5")
+
+make_this <- df %>% mutate(tag = 1:total_rows) %>%
+  left_join(temp) %>%
+  select(-c(sample, tag))
+
+make_this <- make_this[,c(5:9, 1:4)]
+
+return(make_this)
+}
+
+#count the sequencing errors
+count_errors <- function(df){
+  make_this <- df %>% mutate(total_snp_errors = snp_incorrect,
+                      total_indel_errors = indel_incorrect,
+                      total_errors = total_snp_errors) %>%            # for not total errors = only SNP errors
+  select(-replicate) %>%
+  group_by(mix_ratio, primer, paired_ends, errors) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+  return(make_this)
+}
+```
+
+```{r}
+#clean the data
+clean <- clean_the_cols(raw) %>%
+  count_errors()
+
+clean$mix_ratio <- factor(clean$mix_ratio, levels = c(
+  "D1W99", "D10W90", "D20W80", "D30W70", "D40W60", "D50W50", "D60W40", "D70W30","D80W20", "D90W10", "D99W1"))
+```
+
+**********************************************************************************************************************************
+
+```{r}
+clean <- unite(clean, group_name, c(mix_ratio, primer), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "D1W99_V3" = "D1W99 V3 Primers",
+                             "D1W99_V4" = "D1W99 V4 Primers",
+                             "D10W90_V3" = "D10W90 V3 Primers",
+                             "D10W90_V4" = "D10W90 V4 Primers",
+                             "D50W50_V3" = "D50W50 V3 Primers",
+                             "D50W50_V4" = "D50W50 V4 Primers",
+                             "D60W40_V3" = "D60W40 V3 Primers",
+                             "D60W40_V4" = "D60W40 V4 Primers",
+                             "D70W30_V3" = "D70W30 V3 Primers",
+                             "D70W30_V4" = "D70W30 V4 Primers",
+                             "D80W20_V3" = "D80W20 V3 Primers",
+                             "D80W20_V4" = "D80W20 V4 Primers",
+                             "D90W10_V3" = "D90W10 V3 Primers",
+                             "D90W10_V4" = "D90W10 V4 Primers",
+                             "D99W1_V3" = "D99W1 V3 Primers",
+                             "D99W1_V4" = "D99W1 V4 Primers")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+```{r}
+clean <- unite(clean, group_name, c(errors, primer), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "IE_V3" = "V3 Primers + Illumina Errors",
+                             "IE_V4" = "V3 Primers + Illumina Errors",
+                             "P_V3" = "V3 Primers + Perfect",
+                             "P_V4" = "V3 Primers + Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+
+
+```{r}
+p1 <- clean %>%
+  ggplot() +
+  geom_point(aes(x = mix_ratio, y = total_errors, color = primer, linetype = errors,
+             group = interaction(errors,primer)), size = 2)+
+  geom_line(aes(x = mix_ratio, y = total_errors, color = primer, linetype = errors,
+             group = interaction(errors,primer)), size = 1) +
+  theme_clean()+
+  labs(color = "ARTIC Primer", linetype = "Error Type") +
+  xlab("Coverage Mixture") +
+  ylab("Total Errors") +
+  ggtitle("BWA Assembly + Delta + Amplicons")
+
+p1 <- p1 + theme(axis.text.x = element_text(angle = 90, hjust =1),
+           legend.position = "bottom")
+
+p1
+```
+
+
+```{r}
+#raw <- read_excel("./raw_data/Delta_Illumina_amp_IRMA_clean_09.15.2021.xlsx")
+raw <- readRDS("./raw_data/mixtures/delta_clean_mix_shotgun_BWA_10.20.2021.rds")
+#tag total rows in the dataset
+total_rows <- nrow(raw)
+```
+
+```{r}
+#beautify columns
+clean_the_cols <- function(df) {
+  
+  temp <- str_split_fixed(df$sample, "_", 4) %>% 
+  as_tibble() %>%
+  mutate(tag = 1:total_rows) %>% 
+  rename(mix_ratio = "V1",
+         paired_ends = "V2",
+         errors = "V3",
+         replicate = "V4")
+
+make_this <- df %>% mutate(tag = 1:total_rows) %>%
+  left_join(temp) %>%
+  select(-c(sample, tag))
+
+make_this <- make_this[,c(4:8, 1:3)]
+
+return(make_this)
+}
+
+#count the sequencing errors
+count_errors <- function(df){
+  make_this <- df %>% mutate(total_snp_errors = snp_incorrect,
+                      total_indel_errors = indel_incorrect,
+                      total_errors = total_snp_errors) %>%            # for not total errors = only SNP errors
+  select(-replicate) %>%
+  group_by(mix_ratio, paired_ends, errors) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+  return(make_this)
+}
+```
+
+```{r}
+#clean the data
+clean <- clean_the_cols(raw) %>%
+  count_errors()
+
+clean$mix_ratio <- factor(clean$mix_ratio, levels = c(
+  "D1W99", "D10W90", "D20W80", "D30W70", "D40W60", "D50W50", "D60W40", "D70W30","D80W20", "D90W10", "D99W1"))
+```
+
+```{r}
+clean <- clean %>%  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+
+```{r}
+p1 <- clean %>%
+  ggplot() +
+  geom_point(aes(x = mix_ratio, y = total_errors, color = paired_ends, linetype = errors,
+             group = interaction(errors,paired_ends)), size = 2)+
+  geom_line(aes(x = mix_ratio, y = total_errors, color = paired_ends, linetype = errors,
+             group = interaction(errors,paired_ends)), size = 1) +
+  theme_clean()+
+  #scale_color_discrete(guide = "none") +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage Mixture") +
+  ylab("Total Errors") +
+  ggtitle("BWA Assembly + Delta + Shotgun")
+
+p1 <- p1 + theme(axis.text.x = element_text(angle = 90, hjust =1),
+           legend.position = "bottom")
+
+p1
+```
+
+
+
+
+
+
+

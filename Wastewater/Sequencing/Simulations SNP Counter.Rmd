@@ -1,0 +1,318 @@
+---
+title: "Simulations SNP Count"
+output: html_document
+---
+
+```{r}
+library(readxl)
+library(tidyverse)
+```
+
+
+```{r}
+#identify file names in the folder
+filenames <- list.files("./Omincron_shotgun_BWA_VCF_comparison_files", 
+                        pattern="*sites_in_files", full.names=TRUE)
+
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data)
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-29)
+mash_data$file <- gsub("^.{0,52}", "", mash_data$file)
+```
+
+```{r}
+#save as RDS
+mother_of_bwa <- mash_data %>% rename(sample = "file")
+saveRDS(mother_of_bwa, "mother_of_bwa.rds")
+```
+
+```{r}
+#reload
+clean_data <- readRDS("./mother_of_bwa.rds")
+
+keep <- clean_data
+```
+
+
+clean_data <- clean_data %>% select(-c(REF1, REF2, IN_FILE)) %>%
+  rename(ref_sequence = ALT1,
+         compare_sequence = ALT2,
+         ref_position = POS1,
+         compare_position = POS2)
+
+```{r}
+  temp_hold <- clean_data %>% 
+  mutate(count_nucleo = nchar(REF1) + nchar(REF2) + nchar(ALT1) + nchar(ALT2)) %>% #label any indels >4 
+  mutate(detect_indels = case_when(
+    .$count_nucleo == 4 ~ "SNP",
+    TRUE ~ "Indel")) %>%
+    mutate(snp_expected = case_when(  
+    .$POS1 == .$POS2 & .$ALT1 == .$ALT2 & .$detect_indels == "SNP" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(snp_error = case_when(  
+    .$detect_indels == "SNP" & .$snp_expected == 0 ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_expected = case_when( 
+    .$POS1 == .$POS2 & .$REF1 == .$REF2 & .$ALT1 == .$ALT2 & .$detect_indels == "Indel" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_error = case_when(
+    .$detect_indels == "Indel" & .$indel_expected == 0 ~ 1,
+    TRUE ~ 0)) 
+
+  
+  make_this <- temp_hold %>% select(c(sample, snp_expected, snp_error, indel_expected, indel_error)) %>%
+  group_by(sample) %>%
+  summarize_if(is.numeric, sum)
+```
+
+
+```{r}
+plot_data <- make_this %>% mutate(tag = 1:330)
+
+split_ids <- str_split_fixed(plot_data$sample, "\\_", 4)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:330) #total counts
+
+add_ids <- left_join(plot_data, split_ids) %>%
+  rename(paired_ends = "V1",
+         coverage = "V2",
+         errors = "V3",
+         replicate = "V4") %>%
+  select(-c(sample, replicate, tag)) %>%
+  group_by(paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>% #average counts from replicates
+  ungroup()
+  
+plot_clean <- add_ids %>%
+  mutate(errors = recode(errors,
+                         "E" = "Illumina Errors",
+                         "P" = "Perfect Reads"))
+
+
+```
+
+```{r}
+plot_clean$coverage <- factor(plot_clean$coverage, 
+                  levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "100X", "1000X"))
+
+plot_clean %>% ggplot() +
+  geom_line(aes(x = coverage, y = snp_error, color = paired_ends, 
+                linetype = errors, group = interaction(paired_ends, errors)))+
+  theme_classic() +
+  xlab("Sequencing Coverage") +
+  ylab("Total SNP Errors") +
+  labs(color = "Sequencing Type",
+       linetype = "Error Type")+
+  ggtitle("BWA Sequecing Effort Simulations")
+```
+*****************************************************SPADES*****************************************************
+```{r}
+#identify file names in the folder
+filenames <- list.files("./Omincron_shotgun_SPAdes_VCF_comparison_files", 
+                        pattern="*sites_in_files", full.names=TRUE)
+
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data)
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-29)
+mash_data$file <- gsub("^.{0,55}", "", mash_data$file)
+```
+
+```{r}
+#save as RDS
+mother_of_spades <- mash_data %>% rename(sample = "file")
+saveRDS(mother_of_spades, "mother_of_spades.rds")
+```
+
+```{r}
+#reload
+clean_data <- readRDS("./mother_of_spades.rds")
+
+keep <- clean_data
+```
+
+
+clean_data <- clean_data %>% select(-c(REF1, REF2, IN_FILE)) %>%
+  rename(ref_sequence = ALT1,
+         compare_sequence = ALT2,
+         ref_position = POS1,
+         compare_position = POS2)
+
+```{r}
+  temp_hold <- clean_data %>% 
+  mutate(count_nucleo = nchar(REF1) + nchar(REF2) + nchar(ALT1) + nchar(ALT2)) %>% #label any indels >4 
+  mutate(detect_indels = case_when(
+    .$count_nucleo == 4 ~ "SNP",
+    TRUE ~ "Indel")) %>%
+    mutate(snp_expected = case_when(  
+    .$POS1 == .$POS2 & .$ALT1 == .$ALT2 & .$detect_indels == "SNP" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(snp_error = case_when(  
+    .$detect_indels == "SNP" & .$snp_expected == 0 ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_expected = case_when( 
+    .$POS1 == .$POS2 & .$REF1 == .$REF2 & .$ALT1 == .$ALT2 & .$detect_indels == "Indel" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_error = case_when(
+    .$detect_indels == "Indel" & .$indel_expected == 0 ~ 1,
+    TRUE ~ 0)) 
+
+  
+  make_this <- temp_hold %>% select(c(sample, snp_expected, snp_error, indel_expected, indel_error)) %>%
+  group_by(sample) %>%
+  summarize_if(is.numeric, sum)
+```
+
+
+```{r}
+plot_data <- make_this %>% mutate(tag = 1:330)
+
+split_ids <- str_split_fixed(plot_data$sample, "\\_", 4)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:330) #total counts
+
+add_ids <- left_join(plot_data, split_ids) %>%
+  rename(paired_ends = "V1",
+         coverage = "V2",
+         errors = "V3",
+         replicate = "V4") %>%
+  select(-c(sample, replicate, tag)) %>%
+  group_by(paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>% #average counts from replicates
+  ungroup()
+  
+plot_clean <- add_ids %>%
+  mutate(errors = recode(errors,
+                         "E" = "Illumina Errors",
+                         "P" = "Perfect Reads"))
+
+
+```
+
+```{r}
+plot_clean$coverage <- factor(plot_clean$coverage, 
+                  levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "100X", "1000X"))
+
+plot_clean %>% ggplot() +
+  geom_line(aes(x = coverage, y = snp_error, color = paired_ends, 
+                linetype = errors, group = interaction(paired_ends, errors)))+
+  theme_classic() +
+  xlab("Sequencing Coverage") +
+  ylab("Total SNP Errors") +
+  labs(color = "Sequencing Type",
+       linetype = "Error Type")+
+  ggtitle("SPAdes Sequecing Effort Simulations")
+```
+***********************************************IRMA*********************************************************
+```{r}
+#identify file names in the folder
+filenames <- list.files("./Omincron_shotgun_IRMA_VCF_comparison_files", 
+                        pattern="*sites_in_files", full.names=TRUE)
+
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data)
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-29)
+mash_data$file <- gsub("^.{0,53}", "", mash_data$file)
+```
+
+```{r}
+#save as RDS
+mother_of_irma <- mash_data %>% rename(sample = "file")
+saveRDS(mother_of_irma, "mother_of_irma.rds")
+```
+
+```{r}
+#reload
+clean_data <- readRDS("./mother_of_irma.rds")
+
+keep <- clean_data
+```
+
+
+clean_data <- clean_data %>% select(-c(REF1, REF2, IN_FILE)) %>%
+  rename(ref_sequence = ALT1,
+         compare_sequence = ALT2,
+         ref_position = POS1,
+         compare_position = POS2)
+
+```{r}
+  temp_hold <- clean_data %>% 
+  mutate(count_nucleo = nchar(REF1) + nchar(REF2) + nchar(ALT1) + nchar(ALT2)) %>% #label any indels >4 
+  mutate(detect_indels = case_when(
+    .$count_nucleo == 4 ~ "SNP",
+    TRUE ~ "Indel")) %>%
+    mutate(snp_expected = case_when(  
+    .$POS1 == .$POS2 & .$ALT1 == .$ALT2 & .$detect_indels == "SNP" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(snp_error = case_when(  
+    .$detect_indels == "SNP" & .$snp_expected == 0 ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_expected = case_when( 
+    .$POS1 == .$POS2 & .$REF1 == .$REF2 & .$ALT1 == .$ALT2 & .$detect_indels == "Indel" ~ 1,
+    TRUE ~ 0)) %>%
+  mutate(indel_error = case_when(
+    .$detect_indels == "Indel" & .$indel_expected == 0 ~ 1,
+    TRUE ~ 0)) 
+
+  
+  make_this <- temp_hold %>% select(c(sample, snp_expected, snp_error, indel_expected, indel_error)) %>%
+  group_by(sample) %>%
+  summarize_if(is.numeric, sum)
+```
+
+
+```{r}
+plot_data <- make_this %>% mutate(tag = 1:330)
+
+split_ids <- str_split_fixed(plot_data$sample, "\\_", 4)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:330) #total counts
+
+add_ids <- left_join(plot_data, split_ids) %>%
+  rename(paired_ends = "V1",
+         coverage = "V2",
+         errors = "V3",
+         replicate = "V4") %>%
+  select(-c(sample, replicate, tag)) %>%
+  group_by(paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>% #average counts from replicates
+  ungroup()
+  
+plot_clean <- add_ids %>%
+  mutate(errors = recode(errors,
+                         "E" = "Illumina Errors",
+                         "P" = "Perfect Reads"))
+
+
+```
+
+```{r}
+plot_clean$coverage <- factor(plot_clean$coverage, 
+                  levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "100X", "1000X"))
+
+plot_clean %>% ggplot() +
+  geom_line(aes(x = coverage, y = snp_error, color = paired_ends, 
+                linetype = errors, group = interaction(paired_ends, errors)))+
+  theme_classic() +
+  xlab("Sequencing Coverage") +
+  ylab("Total SNP Errors") +
+  labs(color = "Sequencing Type",
+       linetype = "Error Type")+
+  ggtitle("IRMA Sequecing Effort Simulations")
+```
+
+

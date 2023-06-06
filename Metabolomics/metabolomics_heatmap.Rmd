@@ -1,0 +1,164 @@
+---
+title: "metabolomics_heatmap"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+raw <- read.csv("./vib2_nonpolar.csv")
+```
+
+```{r}
+pivot <- raw %>% pivot_longer(cols = -retention_time, names_to = "names", values_to = "values") %>%
+  mutate(tag = 1:26772)
+```
+
+```{r}
+#split the names
+#use \\ to escape the \ 
+split_the_names <- function(df){
+split_names <- str_split_fixed(df$names, "\\_", 4)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:26772) %>% #total counts
+  rename(junk = "V1",
+         iron = "V2",
+         starvation = "V3",
+         replicate = "V4")
+
+add_names <- left_join(df, split_names)
+
+return(add_names)
+
+}
+```
+
+```{r}
+#split the names then rejoin
+clean <- split_the_names(pivot) %>%
+  select(-c(junk, tag, names, replicate)) %>%
+  group_by(retention_time, iron, starvation) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+#clean$retention_time <- as.factor(as.numeric(clean$retention_time))
+
+wide_version <- clean %>% pivot_wider(names_from = c(iron, starvation), values_from = values) %>%
+  mutate(ns_iron_fold = (Y_NS - N_NS)/N_NS,
+         s_iron_fold = (Y_S - N_S)/N_S,
+         yesiron_starve_fold = (Y_NS - Y_S)/Y_S,
+         noiron_starve_fold = (N_NS - N_S)/N_S)
+```
+```{r}
+p1 <- wide_version %>% ggplot() +
+  geom_point(aes(x = retention_time, y = ns_iron_fold)) +
+  theme_bw() +
+  ylab("Fold Change")+
+  ggtitle("Fold Change Not-Starved Samples Fe- to Fe+") 
+  #scale_y_continuous(breaks = seq(-10, 250, 10), limits = c(0, 250))
+
+p1
+
+p2 <- wide_version %>% ggplot() +
+  geom_point(aes(x = retention_time, y = s_iron_fold)) +
+  theme_bw() +
+  ylab("Fold Change")+
+  ggtitle("Fold Change Starved Samples Fe- to Fe+")
+
+p2
+
+p3 <- wide_version %>% ggplot() +
+  geom_point(aes(x = retention_time, y = yesiron_starve_fold)) +
+  theme_bw() +
+  ylab("Fold Change")+
+  ggtitle("Fold Change Fe+ Samples Starved to Non-Starved")
+
+p3
+
+p4 <- wide_version %>% ggplot() +
+  geom_point(aes(x = retention_time, y = noiron_starve_fold)) +
+  theme_bw() +
+  ylab("Fold Change")+
+  ggtitle("Fold Change Fe- Samples Starved to Non-Starved")
+
+p4
+
+```
+```{r, fig.width=10}
+library(ggpubr)
+ggarrange(p1,p3,p2,p4)
+```
+
+
+
+
+```{r}
+hope <- clean %>% group_by(retention_time) %>%
+  mutate(min_val = min(values),
+         max_val = max(values),
+         norm_val = (values - min_val)/(max_val - min_val)* 100)
+
+normalized <- hope %>% select(-c(min_val, max_val, values)) %>%
+   mutate(growth_condition = paste0(iron, "_", starvation))
+
+#normalized$retention_time <- as.factor(as.numeric(normalized$retention_time))
+```
+
+
+
+
+```{r}
+
+normalize_wide <- normalized %>% select(-c(growth_condition)) %>%
+  pivot_wider(names_from = c(iron, starvation), values_from = norm_val) %>%
+  mutate(ns_iron_diff = Y_NS - N_NS,
+         s_iron_diff = Y_S - N_S,
+         yesiron_starve_diff = Y_NS - Y_S,
+         noiron_starve_diff = N_NS - N_S)
+```
+
+
+high res peak ID and non polar 
+```{r, fig.width=8, fig.height=15}
+
+only_7_10 <- normalized %>% subset(retention_time <= 10)
+only_11_15 <- normalized %>% subset(retention_time > 10 | retention_time <= 15)
+
+
+only_7_10$retention_time <- as.factor(as.numeric(only_7_10$retention_time))
+only_11_15$retention_time <- as.factor(as.numeric(only_11_15$retention_time))
+
+
+
+only_7_10 %>% ggplot() +
+  geom_tile(aes(x = growth_condition, y = retention_time, fill = norm_val)) +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 4))+
+  scale_fill_viridis_b()
+
+
+only_11_15 %>% ggplot() +
+  geom_tile(aes(x = growth_condition, y = retention_time, fill = norm_val)) +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 4))+
+  scale_fill_viridis_b()
+  
+```
+
+```{r, fig.width=8, fig.height=50}
+maybe <- normalize_wide %>% select(-c(N_NS, N_S, Y_NS, Y_S)) %>%
+  pivot_longer(cols = -retention_time)
+
+
+maybe %>% ggplot() +
+  geom_tile(aes(x = name, y = retention_time, fill = value))+
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 4))+
+  scale_fill_viridis_b()
+```
+
+

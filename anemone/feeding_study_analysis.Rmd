@@ -1,0 +1,176 @@
+---
+title: "feeding_study_analysis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r}
+raw <- read_excel("./feeding_study_data.xlsx")
+```
+
+```{r}
+clean <- raw %>% mutate(treatment = recode(treatment,
+                                           "control" = "Control",
+                                           "spiked" = "Spiked Fed",
+                                           "wi_fed" = "Water Exposed\n& Fed",
+                                           "wi_no_fed" = "Water Exposed\n& Not Fed")) %>%
+  mutate(species = recode(species,
+                          "v_alg" = "V. alginolyticus",
+                          "v_harv" = "V. harveyi",
+                          "v_medi" = "V. mediterranei"))
+
+clean$treatment <- factor(clean$treatment, 
+                          levels = c("Spiked Fed", "Water Exposed\n& Fed", "Water Exposed\n& Not Fed", "Control"))
+
+clean <- clean %>% mutate(log_cfu = log10(cfus_per_ml))
+
+#correct for zero values to log transform in the chart below. 
+#All zeros must = 1 so they transform to 0 and not -Inf
+
+clean$log_cfu[clean$log_cfu == -Inf] <- 0
+
+#fixes scaling issue with log10() on zero values
+clean$log_cfu = 10^clean$log_cfu
+
+clean <- clean %>% rename(cfu_corrected = log_cfu)
+
+```
+
+
+
+```{r, fig}
+#make main figure
+p1 <- clean %>% ggplot() +
+  geom_boxplot(aes(x = treatment, y = cfu_corrected, fill = species))+
+  annotate("segment", x = 0.75, xend = 4.25, y = 1700000, yend = 1700000, colour = "black", size = 0.7) +  
+    annotate("segment", x = 0.75, xend = 0.75, y = 1700000, yend = 1150000, colour = "black", size = 0.7) +  
+    annotate("segment", x = 4.25, xend = 4.25, y = 1700000, yend = 1150000, colour = "black", size = 0.7) +  
+  annotate("text", x = 2.5, y = 2000000, label = "**", size = 6) +  
+  annotate("segment", x = 2, xend = 4.25, y = 21000, yend = 21000, colour = "black", size = 0.7) +  
+    annotate("segment", x = 4.25, xend = 4.25, y = 21000, yend = 15000, colour = "black", size = 0.7) +  
+    annotate("segment", x = 2, xend = 2, y = 21000, yend = 15000, colour = "black", size = 0.7) +  
+  annotate("text", x = 3.1, y = 23000, label = "**", size = 6) +  
+  scale_y_log10(labels = scales::comma)+
+  theme_classic()+
+  ylab("GFP Vibrio (CFU/mL)") +
+  xlab("Treatment") +
+  labs(fill = "Vibrio spp.") +
+  theme(legend.position = "bottom")
+
+p1
+```
+```{r}
+tiff("./Resubmission Files/fig_3.tiff", res = 300, units = "in", width= 6.5, height=4.5)
+p1
+dev.off()
+```
+
+
+
+```{r}
+stderr <- function(x) sd(x)/sqrt(length(x))
+
+#get average values
+ave_clean <- clean %>% select(species, treatment, cfus_per_ml) %>%
+  group_by(species, treatment) %>%
+  mutate(std_error = stderr(cfus_per_ml)) %>%
+  summarize_if(is.numeric, mean)%>%
+  ungroup()
+
+#fold-changes
+#Alginolyticus spiked vs wicf
+(69166.66667 - 333.33333) / 333.33333
+
+#Alginolyticus spiked vs winf
+(69166.66667 - 83.33333) / 83.33333
+
+#Harveyi spiked vs wicf
+(258833.33333 - 4100.00000) / 4100.00000
+
+#Harveyi spiked vs winf
+(258833.33333 - 83.33333) / 83.33333
+
+#Mediterr spiked vs wicf
+(167166.66667 - 5900.00000) / 5900.00000
+
+#Mediterr spiked vs winf
+(167166.66667 - 383.33333) / 383.33333
+```
+
+```{r}
+only_alg <- clean %>% subset(species == "V. alginolyticus")
+
+d <- only_alg %>% subset(treatment == "Spiked Fed")
+dd <- d$cfus_per_ml
+s <- only_alg %>% subset(treatment == "Water Exposed\n& Fed")
+ss <- s$cfus_per_ml
+z <- only_alg %>% subset(treatment == "Water Exposed\n& Not Fed")
+zz <- z$cfus_per_ml
+
+wilcox.test(dd,ss, p.adjust.method = "bonferroni")
+wilcox.test(dd,zz)
+wilcox.test(ss,zz)
+
+#use pairwise for publication to be conservative 
+pairwise.wilcox.test(only_alg$cfus_per_ml, only_alg$treatment, p.adjust.method = "bonferroni")
+
+```
+
+
+```{r}
+only_harv <- clean %>% subset(species == "V. harveyi")
+
+d <- only_harv %>% subset(treatment == "Spiked Fed")
+dd <- d$cfus_per_ml
+s <- only_harv %>% subset(treatment == "Water Exposed\n& Fed")
+ss <- s$cfus_per_ml
+z <- only_harv %>% subset(treatment == "Water Exposed\n& Not Fed")
+zz <- z$cfus_per_ml
+
+wilcox.test(dd,ss, p.adjust.method = "bonferroni")
+wilcox.test(dd,zz)
+wilcox.test(ss,zz)
+
+pairwise.wilcox.test(only_harv$cfus_per_ml, only_harv$treatment, p.adjust.method = "bonferroni")
+```
+
+```{r}
+only_medi <- clean %>% subset(species == "V. mediterranei")
+
+d <- only_medi %>% subset(treatment == "Spiked Fed")
+dd <- d$cfus_per_ml
+s <- only_medi %>% subset(treatment == "Water Exposed\n& Fed")
+ss <- s$cfus_per_ml
+z <- only_medi %>% subset(treatment == "Water Exposed\n& Not Fed")
+zz <- z$cfus_per_ml
+
+wilcox.test(dd,ss, p.adjust.method = "bonferroni")
+wilcox.test(dd,zz, p.adjust.method = "bonferroni")
+wilcox.test(ss,zz, p.adjust.method = "bonferroni")
+
+pairwise.wilcox.test(only_medi$cfus_per_ml, only_medi$treatment, p.adjust.method = "bonferroni")
+
+```
+
+
+```{r}
+#fold changes
+print("V. alg")
+(69200 - 333) / 333 #SF vs water exposed control fed
+(69200 - 83.3) / 83.3 #SF vs Water exposed no fed
+
+print("V. harv")
+(259000 - 4100) / 4100 #SF vs water exposed control fed
+(259000 - 83.3) / 83.3 #SF vs Water exposed no fed
+
+print("V. medi")
+(167000 - 5900) / 5900 #SF vs water exposed control fed
+(167000 - 383) / 383 #SF vs Water exposed no fed
+```
+
+

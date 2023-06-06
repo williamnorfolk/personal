@@ -1,0 +1,252 @@
+---
+title: "MiSeq_Kallisto_6_12_22"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggforce)
+library(ggthemes)
+```
+
+```{r}
+master_meta <- read_tsv("./master_metadata_RBD_6_16_22.tsv")
+
+```
+
+```{r, include=FALSE}
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-14)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+mash_data$est_counts <- as.numeric(as.character(mash_data$est_counts))
+mash_data$tpm <- as.numeric(as.character(mash_data$tpm))
+
+#mash_data <- mash_data %>% mutate(tag = 1:10400)
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+filenames_rbd_mock <- list.files("./raw_data", pattern="*tsv", full.names=TRUE)
+
+gsub_rbd_mock <- "^.{0,11}"
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_rbd_mock <- mash_data(filenames_rbd_mock, gsub_rbd_mock) %>%
+  mutate(primer = "RBD 2") %>%
+  mutate(tag = 1:1040) %>%
+  rename(sample = "file") 
+
+```
+
+
+
+```{r}
+#save as RDS
+saveRDS(mash_rbd_mock, "./mash_rbd_mock_6_22_22.rds")
+
+monster_mash <- readRDS("./mash_rbd_mock_6_22_22.rds")
+```
+
+```{r}
+#add junk to omicron to match the patterns of other variants
+monster_mash <- monster_mash %>% mutate(target_id = case_when(
+  .$target_id == "Junk/betacoronavirus/OL717063.1" ~ "junk|OL717063.1|junk",
+  .$target_id == "Junk/betacoronavirus/OL672836.1" ~ "junk|OL672836.1|junk",
+  TRUE ~ target_id))
+```
+
+```{r}
+#split the IDs
+#use \\ to escape the \ 
+
+split_ids <- str_split_fixed(monster_mash$target_id, "\\|", 3)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:1040) #total counts
+
+add_ids <- left_join(monster_mash, split_ids) %>%
+  select(-c(target_id)) %>%
+  rename(ref_id = "V1",
+         variant_id = "V2",
+         date_added = "V3") %>%
+  select(-c(ref_id, tag, date_added))
+```
+
+```{r}
+#reorder columns to prevent brain explosions
+
+add_ids <- add_ids[,c(6:7, 1:5)]
+```
+
+```{r}
+#shorten metadata for relevent info
+add_meta <- master_meta %>% select(c(gisaid_epi_isl, pangolin_lineage)) %>%
+  rename(variant_id = "gisaid_epi_isl",
+         lineage = "pangolin_lineage")
+
+ref_info <- read_excel("./sample_name_guide_mock_4_6_16_22.xlsx", 2)
+
+clean <- add_ids %>% left_join(add_meta) %>%
+  left_join(ref_info)
+```
+
+```{r}
+stderr <- function(x) sd(x)/sqrt(length(x))
+```
+
+
+
+```{r}
+plot_clean <- clean %>% select(-c(variant_id, length, eff_length, umi_or_rbd)) %>%
+  group_by(primer, sample, lineage, community, dilution, first_pcr_cycles, last_pcr_cycles) %>%
+  summarise_if(is.numeric, sum) %>% #add all hits to each of the five selected variants to one lineage ping
+  ungroup() %>%
+  select(-c(sample, tpm, dilution)) %>%
+  #select(-replicate) %>% #keep as a seperate step to stage for standard error
+  group_by(primer, lineage, community, first_pcr_cycles, last_pcr_cycles) %>%
+  #average all of the lineages pings for each sample (x5 reps)
+  #mutate(stand_error = stderr(est_counts)) %>% 
+  #summarize_if(is.numeric, mean) %>%
+  ungroup()
+```
+
+#saving incase we need all the variants tagged
+plot_clean_2 <- plot_clean %>% mutate(lineage_name = case_when( #tag the delta and wuhan variants, all other = other
+  .$lineage == "B.1.617.2" ~ "Delta",
+  .$lineage == "B" ~ "Wuhan",
+  .$lineage == "B.1.1.7" ~ "Alpha",
+  .$lineage == "B.1.351" ~ "Beta",
+  .$lineage == "P.1" ~ "Gamma",
+  .$lineage == "B.1.427" | .$lineage == "B.1.429" ~ "Epsilon",
+  .$lineage == "B.1.1.529" ~ "Omicron",
+  .$lineage == "B.1.526" ~ "Iota",
+  .$lineage == "B.1.525" ~ "Eta",
+  .$lineage == "B.1.617.1" ~ "Kappa",
+  .$lineage == "B.1.621" ~ "Mu",
+  .$lineage == "P.2" ~ "Zeta",
+  TRUE ~ "Other"))
+
+```{r}
+plot_clean_2 <- plot_clean %>% mutate(lineage_name = case_when( #tag the delta and wuhan variants, all other = other
+  .$lineage == "B.1.617.2" ~ "Delta",
+  .$lineage == "B" ~ "Wuhan",
+  .$lineage == "B.1.1.7" ~ "Alpha",
+  .$lineage == "B.1.351" ~ "Beta",
+  TRUE ~ "Other"))
+
+sum_bins <- plot_clean_2 %>% select(-c(lineage, lineage_name)) %>% #total detections regardless of variant
+  group_by(primer, community, first_pcr_cycles, last_pcr_cycles) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(total_count = "est_counts")
+
+plot_final <- left_join(plot_clean_2, sum_bins)  %>%
+  mutate(lineage_perc = est_counts/total_count*100)
+
+```
+
+```{r}
+sum_bins_plot <- sum_bins %>%
+  mutate(community = recode(community,
+                            "4" = "Mock 4"))
+
+sum_bins_plot$pcr_cycles <- paste0("First PCR: ", sum_bins_plot$first_pcr_cycles, " Last PCR: ", sum_bins_plot$last_pcr_cycles)
+
+#sum_bins_plot$replicate <- factor(sum_bins_plot$replicate, levels = c("1","2","3","4","5"))
+sum_bins_plot %>% ggplot() +
+  geom_bar(aes(x = community, y = total_count, fill = pcr_cycles), 
+           stat = "identity", position = position_dodge())+
+  theme_bw() +
+  ggtitle("Total Kalisto Hits by Replicate")+
+  xlab("Mock Community") +
+  ylab("Kalisto Counts") +
+  labs(fill = "PCR Cycles")
+```
+
+
+
+```{r}
+plot_final$pcr_cycles <- paste0("First PCR: ", plot_final$first_pcr_cycles, " Last PCR: ", plot_final$last_pcr_cycles)
+
+plot_final$lineage_name <- factor(plot_final$lineage_name, levels = c("Alpha", "Beta", "Delta", "Wuhan", "Other"))
+
+plot_make <- plot_final %>% 
+  select(c(-lineage, -first_pcr_cycles, -last_pcr_cycles)) %>%
+  group_by(primer, community, , lineage_name, pcr_cycles) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup()  #OTHER sum is wrong after this step, but % calculated above so okay
+
+#test <- plot_make[!(plot_make$community == "mc_3" & plot_make$replicate == "2"), ]  
+  
+plot_frame <- plot_make %>%
+  group_by(primer, community, lineage_name, pcr_cycles) %>%
+  mutate(ymax = max(lineage_perc),
+         ymin = min(lineage_perc)) %>%
+  ungroup() %>%
+  mutate(community = recode(community,
+                           # "mc_1" = "Mock 1",
+                           # "mc_2" = "Mock 2",
+                           # "mc_3" = "Mock 3",
+                            "4" = "Mock 4"))
+                           # "mc_5" = "Mock 5"))
+
+
+#plot_frame$replicate <- factor(plot_frame$replicate, levels = c("1","2","3"))
+
+```
+
+```{r}
+expected_data <- read_excel("./sample_name_guide_mock_4_6_16_22.xlsx", 3)
+expected_data$lineage_name <- factor(expected_data$lineage_name, levels = c("Alpha", "Beta", "Delta", "Wuhan", "Other"))
+```
+
+
+
+```{r, fig.width=8}
+plot_frame %>% ggplot() +
+#  geom_errorbar(aes(x = pcr_cycles, ymin = ymin, ymax = ymax, color = lineage_name), 
+#                 position = position_dodge(width = 0.8), width = 0.5, size = 1)+
+#  geom_point(aes(x = pcr_cycles, y = lineage_perc, color = lineage_name), 
+#             position = position_dodge(width = 0.8), size = 2)+
+ # geom_bar(data = expected_data, aes(x = lineage_name, y = expected_perc, fill = lineage_name), stat = "identity", position = position_dodge(width = 0.8), alpha = 0.25) +
+  geom_bar(aes(x = pcr_cycles, y = lineage_perc, fill = lineage_name), 
+           stat = "identity", position = position_dodge())+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle =90))+
+  #scale_fill_discrete(guide = "none") +
+  xlab("Mock Community") +
+  ylab("Kalisto Estimated Counts")+
+  labs(fill = "SARS CoV-2\nVariant", color = "SARS CoV-2\nVariant")+
+  ggtitle("RBD Mock Community Variant Calling with Kalisto")
+  
+
+```
+```{r}
+ave_frame <- plot_frame %>% select(-c(ymin, ymax, total_count)) %>%
+  group_by(primer, community, lineage_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+
+ave_frame %>% ggplot() +
+  geom_bar(aes(x = community, y = lineage_perc, fill = lineage_name), 
+           stat = "identity", position = position_dodge())
+```
+

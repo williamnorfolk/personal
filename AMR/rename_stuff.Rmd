@@ -1,0 +1,112 @@
+---
+title: "rename_stuff"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+names <- read_csv("./name_key.csv") %>%
+  select(-...1)
+adult <- read_csv("./clean_adult_with_repeats_FINAL.csv")
+child <- read_csv("./clean_child_with_repeats_FINAL.csv")
+
+```
+
+```{r}
+esbl <-read_csv("./name_key_ESBL.csv")
+esbl$original_name <- gsub("^.{0,1}", "", esbl$original_name)
+esbl$original_name <- substr(esbl$original_name,1,8)
+esbl$original_name <- gsub("-", "", esbl$original_name)
+esbl$original_name <- gsub("_", "", esbl$original_name)
+esbl$revised_filename <- substr(esbl$revised_filename,1,15)
+
+esbl_clean <- esbl %>% rename(participant_id = original_name,
+                              new_name = revised_filename)
+```
+
+
+
+```{r}
+mod_names <- names %>% mutate(actual_id = original_name)
+mod_names$actual_id <- gsub("^.{0,3}", "", mod_names$actual_id)
+mod_names$actual_id <- substr(mod_names$actual_id,1,7)
+mod_names$actual_id <- gsub("-", "", mod_names$actual_id)
+
+```
+
+```{r}
+mod_names <- mod_names %>% mutate(new_id = value)
+mod_names$new_id <- gsub("^.{0,3}", "", mod_names$new_id)
+mod_names$new_id <- substr(mod_names$new_id,1,17)
+mod_names$new_id <- gsub("_R1.", "", mod_names$new_id)
+mod_names$new_id <- gsub("_R2.", "", mod_names$new_id)
+mod_names$new_id <- gsub("_R1", "", mod_names$new_id)
+mod_names$new_id <- gsub("_R2", "", mod_names$new_id)
+mod_names$new_id <- gsub("_R", "", mod_names$new_id)
+
+```
+
+
+```{r}
+clean_adult <- mod_names %>% select(c(new_id, actual_id)) %>% mutate(tag = 1) %>%
+  group_by(actual_id, new_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  select(-tag) %>%
+  rename(participant_id = actual_id,
+         new_name = new_id)
+
+```
+
+
+```{r}
+name_key_child <-read_excel("./name_key for child samples.xlsx",2)
+name_key_child$old_name <- substr(name_key_child$old_name,1,7)
+name_key_child$new_name <- substr(name_key_child$new_name,1,18)
+name_key_child$new_name <- gsub("_R1.", "", name_key_child$new_name)
+name_key_child$new_name <- gsub("_R2.", "", name_key_child$new_name)
+name_key_child$new_name <- gsub("_R1", "", name_key_child$new_name)
+name_key_child$new_name <- gsub("_R2", "", name_key_child$new_name)
+name_key_child$new_name <- gsub("_R", "", name_key_child$new_name)
+name_key_child$old_name <- gsub("-", "", name_key_child$old_name)
+
+clean_child <- name_key_child %>% rename(participant_id = old_name)
+```
+
+
+```{r}
+clean_all <- rbind(clean_adult, clean_child, esbl_clean)
+```
+
+
+```{r}
+adult_add_names <- adult %>% left_join(clean_all)
+adult_add_names<- adult_add_names[, c(8, 93,1:7,9:92)]
+adult_add_names <- adult_add_names %>% select(-c(...1))
+```
+```{r}
+child_add_names <- child %>% left_join(clean_all)
+child_add_names <- merge_child[, c(8, 72,1:7,9:71)]
+child_add_names <- child_add_names %>% select(-c(...1))
+
+```
+
+
+
+
+
+
+```{r}
+write_csv(adult_add_names, "./adult_with_masked_names.csv")
+write_csv(child_add_names, "./child_with_masked_names.csv")
+write_csv(clean_all, "./master_name_list.csv")
+
+```
+
+
+
+

@@ -1,0 +1,37 @@
+---
+title: "chi_square_ESBL"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+sex <- read_excel("./demographics.xlsx", 1)
+table(sex$treatment, sex$result)
+chisq.test(sex$treatment, sex$result, correct=FALSE)
+
+#all responded
+
+```
+
+```{r}
+race <- read_excel("./demographics.xlsx", 2)
+table(race$treatment, race$result)
+chisq.test(race$treatment, race$result, correct=FALSE)
+
+#39 did not respond or other
+
+```
+```{r}
+pet <- read_excel("./demographics.xlsx", 3)
+table(pet$treatment, pet$result)
+chisq.test(pet$treatment, pet$result, correct=FALSE)
+
+
+#20 must have not responded
+```
+

@@ -1,0 +1,722 @@
+---
+title: "Oyster_Data_Validation"
+output: html_document
+---
+
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+make_mashable <- function(df, date){
+  make_this <- df %>% 
+    select(-c(X, ymin, ymax, sq)) %>%
+    mutate(date = date)
+  return(make_this)
+}
+
+
+stderr <- function(x) sd(x)/sqrt(length(x))
+
+```
+
+
+```{r}
+#sample 1
+vp1 <- read.csv("./data_check/clean_unknown_vp_6_15_22.csv") %>%
+  make_mashable("2022-06-15")
+vp1 <- vp1 %>% subset(cq <= 36.5) #account for positives in neg controls
+
+vv1 <- read.csv("./data_check/clean_unknown_vv_6_15_22.csv") %>%
+  make_mashable("2022-06-15")
+vv1 <- vv1 %>% subset(cq <= 33.4) # account for positives in neg controls
+
+raw1 <- rbind(vp1, vv1)
+
+#sample 2
+vp2 <- read.csv("./data_check/clean_unknown_vp_6_30_22.csv") %>%
+  make_mashable("2022-06-30")
+vv2 <- read.csv("./data_check/clean_unknown_vv_6_30_22.csv") %>%
+  make_mashable("2022-06-30")
+raw2 <- rbind(vp2, vv2)
+
+#sample 3
+vp3 <- read.csv("./data_check/clean_unknown_vp_7_14_22.csv") %>%
+  make_mashable("2022-07-14")
+vv3 <- read.csv("./data_check/clean_unknown_vv_7_14_22_cleaned.csv") %>%
+  make_mashable("2022-07-14")
+raw3 <- rbind(vp3, vv3)
+
+#sample 4
+vp4 <- read.csv("./data_check/clean_unknown_vp_7_27_22.csv") %>%
+  make_mashable("2022-07-27")
+vv4 <- read.csv("./data_check/clean_unknown_vv_7_27_22.csv") %>%
+  make_mashable("2022-07-27")
+raw4 <- rbind(vp4, vv4)
+
+#sample 5
+vp5 <- read.csv("./data_check/clean_unknown_vp_8_10_22.csv") %>%
+  make_mashable("2022-08-10")
+vv5 <- read.csv("./data_check/clean_unknown_vv_8_10_22.csv") %>%
+  make_mashable("2022-08-10")
+raw5 <- rbind(vp5, vv5)
+
+#sample 6
+vp6 <- read.csv("./data_check/clean_unknown_vp_8_23_22.csv") %>%
+  make_mashable("2022-08-23")
+vv6 <- read.csv("./data_check/clean_unknown_vv_8_23_22.csv") %>%
+  make_mashable("2022-08-23")
+raw6 <- rbind(vp6, vv6)
+
+#sample 7
+vp7 <- read.csv("./data_check/clean_unknown_vp_9_7_22.csv") %>%
+  make_mashable("2022-09-07")
+vv7 <- read.csv("./data_check/clean_unknown_vv_9_7_22.csv") %>%
+  make_mashable("2022-09-07")
+raw7 <- rbind(vp7, vv7)
+
+#sample 8
+vp8 <- read.csv("./data_check/clean_unknown_vp_9_20_22.csv") %>%
+  make_mashable("2022-09-20")
+vv8 <- read.csv("./data_check/clean_unknown_vv_9_20_22.csv") %>%
+  make_mashable("2022-09-20")
+raw8 <- rbind(vp8, vv8)
+
+#sample 9
+vp9 <- read.csv("./data_check/clean_unknown_vp_10_25_22.csv") %>%
+  make_mashable("2022-10-25")
+vv9 <- read.csv("./data_check/clean_unknown_vv_10_25_22.csv") %>%
+  make_mashable("2022-10-25")
+raw9 <- rbind(vp9, vv9)
+
+#sample 10
+vp10 <- read.csv("./data_check/clean_unknown_vp_11_2_22.csv") %>%
+  make_mashable("2022-11-02")
+vv10 <- read.csv("./data_check/clean_unknown_vv_11_2_22.csv") %>%
+  make_mashable("2022-11-02")
+raw10 <- rbind(vp10, vv10)
+
+mash_all <- rbind(raw1, raw2, raw3, raw4, raw5, raw6, raw7, raw8, raw9, raw10)
+```
+
+Notes
+FBC3 for Vv -- 2020-07-27 = likely biased (many wells failed on HEX)
+2022-07-14 Vv assay = check front calculations, very low Ct values
+
+```{r}
+check_cy5 <- mash_all %>% subset(fluor == "Cy5")
+```
+
+
+```{r}
+work <- mash_all
+
+working <- work %>% select(c(fluor, sample, cq, target, date, dilution, container, treatment)) 
+
+
+working %>% ggplot() +
+  geom_jitter(aes(x = date, y = cq))
+```
+```{r}
+
+only_hex <- working %>% subset(fluor == "HEX")
+
+only_hex_no_na <- only_hex[!is.na(only_hex$cq), ] #pull all NAs for a proper average 
+
+remove_38_up <- only_hex_no_na %>% subset(cq <= 38) #remove all values greater than or equal to 38
+
+remove_38_up %>% ggplot() +
+  geom_jitter(aes(x = target, y = cq, color = as.factor(dilution))) +
+  facet_wrap(~date)
+
+```
+
+
+```{r}
+
+averaging <- remove_38_up  %>%
+  group_by(fluor, sample, dilution, date, target, container, treatment) %>%
+  mutate(standerr = stderr(cq)) %>%
+  ungroup() %>%
+  mutate(high_std_err = case_when(
+    .$standerr > 5 ~ "High",
+    TRUE ~ "Not High")) 
+
+averaging_for_real <-  averaging %>%
+  select(-c(standerr, fluor)) %>%
+ # group_by(sample, dilution, date, target, container, treatment) %>%
+ # summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(real_name = paste0(container, " ", treatment, " ", dilution))
+```
+
+
+```{r}
+beautify <- averaging_for_real %>% 
+  select(c(real_name, date, cq, target, treatment, container, dilution, sample)) %>%
+  group_by(real_name, date, target, treatment, container, dilution, sample) %>%
+  mutate(positive_tubes = n()) %>%
+  ungroup() %>%
+  select(-cq) %>%
+  group_by(real_name, date, target, treatment, container, dilution, sample) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+```
+
+
+
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+
+calc <- mpn(positive = vectorize, tubes = tubes, amount = amount)
+return(calc$MPN)
+
+}
+
+
+```{r}
+library(MPN)
+
+dils <- c("-1", "-2", "-3", "-4", "-5", "-6") %>% as_tibble() %>% rename(dilution = value) 
+dils$dilution <- as.integer(as.character(dils$dilution))
+
+#MPN calcul-o-maker-izer 
+find_mpn <- function(df, date_name, target_name, sample_name){
+  mpn_make <- beautify %>% 
+    subset(date == date_name & target == target_name & sample == sample_name)
+  
+find <- mpn_make %>% select(positive_tubes, dilution) %>% 
+  right_join(dils) %>% 
+  mutate(dilution = abs(dilution))
+
+find <- find[order(as.numeric(as.character(find$dilution))),]
+vectorize <- as.vector(find$positive_tubes)
+vectorize[is.na(vectorize)] <- 0
+  
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+  
+calc <- mpn(positive = vectorize, tubes = tubes, amount = amount)
+
+make_this <- calc$MPN %>%
+  as_tibble() %>%
+  mutate(date = date_name,
+         sample = sample_name,
+         target = target_name,
+         tube_minus1 = vectorize[1],
+         tube_minus2 = vectorize[2],
+         tube_minus3 = vectorize[3],
+         tube_minus4 = vectorize[4],
+         tube_minus5 = vectorize[5],
+         tube_minus6 = vectorize[6])
+
+
+     return(make_this)
+
+}
+```
+
+```{r}
+  
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+
+mpn_make <- beautify %>% 
+    subset(date == "2022-07-14" & target == "Vv" & sample == "FBT3")
+vectorize <- as.vector(mpn_make$positive_tubes)
+  length(vectorize) <- 6
+  vectorize[is.na(vectorize)] <- 0
+  
+  calc <- mpn(positive = vectorize, tubes = tubes, amount = amount)
+  
+make_this <- calc$MPN %>%
+  as_tibble()
+
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+```
+
+
+```{r}
+mpn_make <- beautify %>% 
+    subset(date == "2022-06-15" & target == "Vv" & sample == "FBT3")
+
+find <- mpn_make %>% select(positive_tubes, dilution) %>% 
+  right_join(dils) %>% 
+  mutate(dilution = abs(dilution))
+
+find <- find[order(as.numeric(as.character(find$dilution))),]
+vectorize <- as.vector(find$positive_tubes)
+vectorize[is.na(vectorize)] <- 0
+  
+  calc <- mpn(positive = vectorize, tubes = tubes, amount = amount)
+  
+make_this <- calc$MPN %>%
+  as_tibble()
+```
+
+```{r}
+#Event 1 6/15/22
+vp1_mpn <- find_mpn(beautify, "2022-06-15", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vp", "FCC3"))
+
+vv1_mpn <- find_mpn(beautify, "2022-06-15", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-15", "Vv", "FCC3"))
+
+#Event 2 6/30/22
+vp2_mpn <- find_mpn(beautify, "2022-06-30", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vp", "FCC3"))
+
+vv2_mpn <- find_mpn(beautify, "2022-06-30", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-06-30", "Vv", "FCC3"))
+
+#Event 3 7/14/22
+vp3_mpn <- find_mpn(beautify, "2022-07-14", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vp", "FCC3"))
+
+vv3_mpn <- find_mpn(beautify, "2022-07-14", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-14", "Vv", "FCC3"))
+
+#Event 4 7/24/22
+vp4_mpn <- find_mpn(beautify, "2022-07-27", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vp", "FCC3"))
+
+vv4_mpn <- find_mpn(beautify, "2022-07-27", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-07-27", "Vv", "FCC3"))
+
+
+#Event 5 8/10/22
+vp5_mpn <- find_mpn(beautify, "2022-08-10", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vp", "FCC3"))
+
+vv5_mpn <- find_mpn(beautify, "2022-08-10", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-10", "Vv", "FCC3"))
+
+#Event 6 8/23/22
+vp6_mpn <- find_mpn(beautify, "2022-08-23", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vp", "FCC3"))
+
+vv6_mpn <- find_mpn(beautify, "2022-08-23", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-08-23", "Vv", "FCC3"))
+
+#Event 7 9/7/22
+vp7_mpn <- find_mpn(beautify, "2022-09-07", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vp", "FCC3"))
+
+vv7_mpn <- find_mpn(beautify, "2022-09-07", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-07", "Vv", "FCC3"))
+
+#Event 8 9/20/22
+vp8_mpn <- find_mpn(beautify, "2022-09-20", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vp", "FCC3"))
+
+vv8_mpn <- find_mpn(beautify, "2022-09-20", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-09-20", "Vv", "FCC3"))
+
+#Event 9 10/25/22
+vp9_mpn <- find_mpn(beautify, "2022-10-25", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vp", "FCC3"))
+
+vv9_mpn <- find_mpn(beautify, "2022-10-25", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-10-25", "Vv", "FCC3"))
+
+#Event 10 11/2/22
+vp10_mpn <- find_mpn(beautify, "2022-11-02", "Vp", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vp", "FCC3"))
+
+vv10_mpn <- find_mpn(beautify, "2022-11-02", "Vv", "FBT1") %>% 
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FBT2")) %>% 
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FBT3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FBC1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FBC2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FBC3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCT1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCT2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCT3")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCC1")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCC2")) %>%
+  rbind(find_mpn(beautify, "2022-11-02", "Vv", "FCC3"))
+```
+
+
+```{r}
+clean_mpn <- rbind(vp1_mpn, vv1_mpn, vp2_mpn, vv2_mpn, vp3_mpn, vv3_mpn, vp4_mpn, vv4_mpn, vp5_mpn, vv5_mpn, vp6_mpn, vv6_mpn, vp7_mpn, vv7_mpn, vp8_mpn, vv8_mpn, vp9_mpn, vv9_mpn, vp10_mpn, vv10_mpn)  %>%
+  mutate(tag = substr(sample, 1,3))
+
+y_lab <- expression("MPN g"~ phantom()^{-1})
+
+
+clean_mpn %>% ggplot() +
+  geom_boxplot(aes(x = target, y = value, fill = tag)) +
+  facet_wrap(~date)
+
+
+```
+
+```{r}
+write.csv(clean_mpn, "./adjust_mpns.csv")
+```
+
+```{r}
+return <- read.csv("./adjusted_mpns.csv")
+
+clean_mpn <- return
+```
+
+
+```{r}
+only_vp <- clean_mpn %>% subset(target == "Vp")
+only_vv <- clean_mpn %>% subset(target == "Vv") %>% mutate(pull = case_when(
+  .$date == "2022-06-15" & .$sample == "FBT3" ~ "toss",
+  .$date == "2022-06-15" & .$sample == "FCT3" ~ "toss",
+  .$date == "2022-06-15" & .$sample == "FBC1" ~ "toss",
+  TRUE ~ "keep")) %>%
+  subset(pull == "keep")
+
+only_vp %>% ggplot() +
+  geom_boxplot(aes(x = target, y = value, fill = tag)) +
+  facet_wrap(~date) +
+  scale_y_log10(labels = scales::comma) +
+  theme_bw() +
+  xlab("Target") +
+  ylab(y_lab)+
+  labs(fill = "Sample Type")
+
+only_vp %>% ggplot() +
+  geom_boxplot(aes(x = date, y = value, fill = tag)) +
+  scale_y_log10(labels = scales::comma) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) + 
+  xlab("Date") +
+  ylab(y_lab)+
+  labs(fill = "Sample Type")
+
+only_vv %>% ggplot() +
+  geom_boxplot(aes(x = target, y = value, fill = tag)) +
+  facet_wrap(~date) +
+  scale_y_log10(labels = scales::comma) +
+  theme_bw() +
+  xlab("Target") +
+  ylab(y_lab)+
+  labs(fill = "Sample Type")
+
+only_vv %>% ggplot() +
+  geom_boxplot(aes(x = date, y = value, fill = tag)) +
+  scale_y_log10(labels = scales::comma) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) + 
+  xlab("Date") +
+  ylab(y_lab)+
+  labs(fill = "Sample Type")
+
+```
+
+
+```{r, fig.width=7, fig.height=7}
+y_lab <- expression("MPN g"~ phantom()^{-1})
+
+clean_mpn2 <- clean_mpn %>%  mutate(pull = case_when(
+  .$date == "2022-06-15" & .$target == "Vv" & .$sample == "FBT3" ~ "toss",
+  .$date == "2022-06-15" & .$target == "Vv" & .$sample == "FCT3" ~ "toss",
+  .$date == "2022-06-15" & .$target == "Vv" & .$sample == "FBC1" ~ "toss",
+  TRUE ~ "keep")) %>%
+  subset(pull == "keep")
+
+clean_mpn2 %>% ggplot() +
+  geom_point(aes(x = as.Date(date), y = value, color = target)) +
+    geom_line(aes(x = as.Date(date), y = value, color = target, group = target)) +
+  facet_wrap(~sample, ncol = 3)+
+  scale_y_log10(labels = scales::comma)+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))+
+  xlab("Sample Date") +
+  ylab(y_lab)+
+  labs(color = "Target")
+```
+
+```{r}
+write.csv(clean_mpn, "./data_check/clean_mpn.csv")
+```
+
+
+```{r}
+container <- clean_mpn2 %>% mutate(tag = recode(tag,
+                                               "FBT" = "FB",
+                                               "FBC" = "FB",
+                                               "FCC" = "FC",
+                                               "FCT" = "FC")) %>%
+  select(c(value, date, tag, target))
+
+container %>% ggplot() +
+  geom_boxplot(aes(x = date, y = log10(value), fill = tag))
+
+
+container2 <- container %>% group_by(date, tag, target) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(log10_mpn = log10(value))%>%
+  mutate(target = recode(target,
+                         "Vp" = "V. parahaemolyticus",
+                         "Vv" = "V. vulnificus")) %>%
+  mutate(tag = recode(tag,
+                      "FB" = "Floating Bag",
+                      "FC" = "Floating Cage"))
+
+container2$date <- as.Date(as.character(container2$date))
+```
+
+
+```{r, fig.width=8}
+y_lab2 <- expression("Log10 MPN g"~ phantom()^{-1})
+
+
+container2 %>% ggplot() +
+  geom_line(aes(x = date, y = log10_mpn, color = target, 
+                group = interaction(tag, target), linetype = tag), size = 1) +
+  geom_point(aes(x = date, y = log10_mpn, color = target, 
+                group = interaction(tag, target)), size = 1.5)+
+  theme_bw()+
+  xlab("Date") +
+  ylab(y_lab2) +
+  labs(color = "Target",
+       linetype = "Container Type")+
+  theme(legend.position = "bottom")
+```
+
+```{r}
+container3 <- clean_mpn2 %>% mutate(tag = recode(tag,
+                                               "FBT" = "T",
+                                               "FBC" = "C",
+                                               "FCC" = "C",
+                                               "FCT" = "T")) %>%
+  select(c(value, date, tag, target))
+
+container3 %>% ggplot() +
+  geom_boxplot(aes(x = date, y = log10(value), fill = tag))
+
+
+container4 <- container3 %>% group_by(date, tag, target) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(log10_mpn = log10(value))%>%
+  mutate(target = recode(target,
+                         "Vp" = "V. parahaemolyticus",
+                         "Vv" = "V. vulnificus")) %>%
+  mutate(tag = recode(tag,
+                      "T" = "2 hours",
+                      "C" = "Control"))
+
+container4$date <- as.Date(as.character(container4$date))
+```
+
+```{r}
+container4 %>% ggplot() +
+  geom_line(aes(x = date, y = log10_mpn, color = target, 
+                group = interaction(tag, target), linetype = tag), size = 1) +
+  geom_point(aes(x = date, y = log10_mpn, color = target, 
+                group = interaction(tag, target)), size = 1.5)+
+  theme_bw()+
+  xlab("Date") +
+  ylab(y_lab2) +
+  labs(color = "Target",
+       linetype = "Container Type")+
+  theme(legend.position = "bottom")
+```
+
+
+
+
+

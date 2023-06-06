@@ -1,0 +1,690 @@
+---
+title: "temp_processing"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(ggforce)
+library(SciViews)
+```
+
+```{r}
+raw1 <- read_excel("./temp_runs/sal_3_temp_30_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw2<- read_excel("./temp_runs/sal_3_temp_34_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw3<- read_excel("./temp_runs/sal_3_temp_36_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw4<- read_excel("./temp_runs/sal_3_temp_38_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw5<- read_excel("./temp_runs/sal_3_temp_40_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw6<- read_excel("./temp_runs/sal_3_temp_24_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw7<- read_excel("./temp_runs/sal_3_temp_32_iron_normal.xlsx", 2) %>%
+  select(-c(...99))
+
+raw8 <- read_excel("./temp_runs/sal_3_temp_28_iron_normal.xlsx", 2) %>%
+  select(-c(...91))
+
+raw9 <- read_excel("./temp_runs/sal_3_temp_26_iron_normal.xlsx", 2) %>%
+  select(-c(...83))
+```
+
+```{r}
+pull_sides <- raw8 %>% select(-contains("Blank")) %>%
+  select(-contains("Ctrl")) %>%
+  select(-contains("A0")) %>% #Remove A rows 
+  select(-contains("A1")) %>%
+  select(-contains("H0")) %>% #Remove H rows 
+  select(-contains("H1"))
+
+pull_sides[pull_sides<0] <- 0
+pull_sides <- pull_sides %>% rename(
+  reading = "Reading",
+  time = "avg. time [s]")
+
+names(pull_sides)[3:68] <- str_sub(names(pull_sides)[3:68],end = -11)
+
+pivot <- pull_sides %>% pivot_longer(cols = -c(reading, time), names_to = "strain", values_to = "od")
+
+pivot  <- pivot[!is.na(pivot$reading),]
+
+clean_8 <- pivot %>% group_by(reading, time, strain) %>%
+  summarise_if(is.numeric, mean) %>%   
+  ungroup() %>%
+  mutate(time = time / 3600)
+
+
+clean_8 <- clean_8[!(clean_8$strain == "Un"), ]
+
+```
+
+
+
+```{r}
+
+make_the_thing <- function(df) {
+pull_sides <- df %>% select(-contains("Blank")) %>%
+  select(-contains("Ctrl")) %>%
+  select(-contains("A0")) %>% #Remove A rows 
+  select(-contains("A1")) %>%
+  select(-contains("H0")) %>% #Remove H rows 
+  select(-contains("H1"))
+ 
+pull_sides[pull_sides<0] <- 0
+pull_sides <- pull_sides %>% rename(
+  reading = "Reading",
+  time = "avg. time [s]")
+
+
+names(pull_sides)[3:62] <- str_sub(names(pull_sides)[3:62],end = -11)
+
+pivot <- pull_sides %>% pivot_longer(cols = -c(reading, time), names_to = "strain", values_to = "od")
+
+pivot  <- pivot[!is.na(pivot$reading),]
+
+clean <- pivot %>% group_by(reading, time, strain) %>%
+  summarise_if(is.numeric, mean) %>%   
+  ungroup() %>%
+  mutate(time = time / 3600)
+
+return(clean)
+
+}
+
+stderr <- function(x) sd(x)/sqrt(length(x))
+
+
+make_1 <- make_the_thing(raw1) %>%
+  mutate(temp = "30 C")
+
+make_2 <- make_the_thing(raw2) %>%
+  mutate(temp = "34 C")
+
+make_3 <- make_the_thing(raw3) %>%
+  mutate(temp = "36 C")
+
+make_4 <- make_the_thing(raw4) %>%
+  mutate(temp = "38 C")
+
+make_5 <- make_the_thing(raw5) %>%
+  mutate(temp = "40 C")
+
+make_6 <- make_the_thing(raw6) %>%
+  mutate(temp = "24 C")
+
+make_7 <- make_the_thing(raw7) %>%
+  mutate(temp = "32 C")
+
+make_8 <- clean_8 %>%
+  mutate(temp = "28 C")
+
+make_9 <- make_the_thing(raw9) %>%
+  mutate(temp = "26 C")
+
+
+make_all_the_things <- rbind(make_1, make_2, make_3, make_4, make_5, make_6, make_7, make_8, make_9) %>%
+  mutate(strain = recode(strain,
+                         "ATC" = "ATCC"))
+
+make_all_the_things$strain <- factor(make_all_the_things$strain, levels = c("551", "580", "507", "ATCC"))
+```
+
+```{r}
+write.csv(make_all_the_things, "all_temp.csv")
+```
+
+
+```{r, fig.width=10}
+cols = c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3", "red")
+
+p1 <- make_all_the_things %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = strain), size = 1) +
+  facet_wrap(~temp) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  ggtitle("V. alginolyticus strains vs. temperature")+
+    scale_color_manual(values = cols)
+
+
+p1
+```
+```{r}
+only_551 <- make_all_the_things %>% subset(strain == "551")
+
+only_507 <- make_all_the_things %>% subset(strain == "507")
+
+only_580 <- make_all_the_things %>% subset(strain == "580")
+
+only_ATCC <- make_all_the_things %>% subset(strain == "ATCC")
+
+```
+
+```{r}
+only_551 %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = temp), size =1) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  ggtitle("V. alginolyticus strain 551 vs. temperature")+
+    scale_color_manual(values = cols)
+
+only_580 %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = temp), size =1) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  ggtitle("V. alginolyticus strain 580 vs. temperature")+
+    scale_color_manual(values = cols)
+
+only_507 %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = temp), size =1) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  ggtitle("V. alginolyticus strain 507 vs. temperature")+
+    scale_color_manual(values = cols)
+
+only_ATCC %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = temp), size =1) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  ggtitle("V. alginolyticus strain ATCC vs. temperature")+
+    scale_color_manual(values = cols)
+```
+
+
+```{r, fig.width=10}
+lag_phase <- make_all_the_things %>% subset(od >= 0.05 & od < 0.15)
+stat_phase <- make_all_the_things %>% subset(time >= 14.5 & od < 15.5)
+cols = c("#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D", "#666666", "red") #brewer dark2
+
+just_ave_lag <- lag_phase %>% select(temp, time, strain) %>%
+  group_by(temp, strain) %>%
+  mutate(lag_error = stderr(time),
+         lag_n = n()) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  rename(lag_time = time) %>%
+  mutate(max_lag = lag_time + lag_error,
+         min_lag = lag_time - lag_error)
+
+
+# lag_phase %>% ggplot() +
+#   geom_boxplot(aes(x = strain, y = time, fill = temp)) +
+#   geom_vline(xintercept = 1.5, linetype = "dashed")+
+#   geom_vline(xintercept = 2.5, linetype = "dashed")+
+#   geom_vline(xintercept = 3.5, linetype = "dashed")+
+#   theme_classic() +
+#   xlab("Strain ID")+
+#   ylab("Time (hrs)") +
+#   ggtitle("Duration of Lag Phase vs. Temperature (C)")+
+#   labs(fill = "Temperature (C)")+
+#   scale_fill_manual(values = cols)
+# 
+# stat_phase %>% ggplot() +
+#   geom_boxplot(aes(x = strain, y = od, fill = temp))+
+#   geom_vline(xintercept = 1.5, linetype = "dashed")+
+#   geom_vline(xintercept = 2.5, linetype = "dashed")+
+#   geom_vline(xintercept = 3.5, linetype = "dashed")+
+#   theme_classic() +
+#   xlab("Strain ID")+
+#   ylab("Optical Density 600nm") +
+#   ggtitle("Stationary Phase Optical Density vs. Temperature (C)")+
+#   labs(fill = "Temperature (C)")+
+#   scale_fill_manual(values = cols)
+
+
+```
+
+
+```{r}
+make_all_the_things<- make_all_the_things %>% left_join(just_ave_lag)
+make_all_the_things$strain <- factor(make_all_the_things$strain, levels = c("551", "580", "507", "ATCC"))
+```
+```{r}
+#serious GR equation
+library(SciViews)
+x <- make_all_the_things %>%
+  subset(od >= 0.1 & od <= 0.75) %>%
+  select(-lag_time)
+
+x$reading <- as.numeric(as.character(x$reading))
+x <- x[!(x$reading < 50), ]
+
+binned <- x %>% group_by(strain, temp) %>%
+  mutate(total_hits = n()) %>%
+  ungroup() %>%
+  mutate(total_min = total_hits*2.3,
+         reading_min = reading * 2.3)
+
+
+early_log <- binned %>% select(-total_hits, -total_min, -reading, -time) %>%
+  subset(od <= 0.2) %>%
+  group_by(strain, temp) %>%
+  mutate(early_od_err = stderr(od),
+         early_time_err = stderr(reading_min)) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  rename(early_log_od = od, 
+         early_log_min = reading_min) %>%
+  mutate(early_od_max = early_log_od + early_od_err,
+         early_od_min = early_log_od - early_od_err,
+         early_time_max = early_log_min + early_time_err,
+         early_time_min = early_log_min - early_time_err)
+
+#late_log <- binned %>% select(-total_hits, -total_min, -reading, -time) %>%
+#  subset(od > 0.6) %>%
+#  group_by(strain, temp) %>% mutate(nn = n())
+
+late_log <- binned %>% select(-total_hits, -total_min, -reading, -time) %>%
+  subset(od > 0.65) %>%
+  group_by(strain, temp) %>%
+  mutate(late_od_err = stderr(od),
+         late_time_err = stderr(reading_min)) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  rename(late_log_od = od,
+         late_log_min = reading_min) %>%
+    mutate(late_od_max = late_log_od + late_od_err,
+         late_od_min = late_log_od - late_od_err,
+         late_time_max = late_log_min + late_time_err,
+         late_time_min = late_log_min - late_time_err)
+
+gr_df <- left_join(early_log, late_log)
+
+gr_df <- gr_df %>% mutate(time_diff = late_log_min - early_log_min) %>%
+  mutate(ln_late_log = ln(late_log_od)) %>%
+  mutate(ln_early_log = ln(early_log_od)) %>%
+  mutate(gr_constant = ((ln_late_log) - (ln_early_log)) / time_diff) %>%
+  mutate(gr = 0.6931 / gr_constant)
+
+gr_df_max <- gr_df %>% mutate(time_diff_max = late_time_max - early_time_max) %>%
+  mutate(ln_late_log_max = ln(late_od_max)) %>%
+  mutate(ln_early_log_max = ln(early_od_max)) %>%
+  mutate(gr_constant_max = ((ln_late_log_max) - (ln_early_log_max)) / time_diff_max) %>%
+  mutate(gr_max = 0.6931 / gr_constant_max)  %>%
+  select(strain, temp, gr_max)
+
+gr_df_min <- gr_df %>% mutate(time_diff_min = late_time_min - early_time_min) %>%
+  mutate(ln_late_log_min = ln(late_od_min)) %>%
+  mutate(ln_early_log_min = ln(early_od_min)) %>%
+  mutate(gr_constant_min = ((ln_late_log_min) - (ln_early_log_min)) / time_diff_min) %>%
+  mutate(gr_min = 0.6931 / gr_constant_min) %>%
+  select(strain, temp, gr_min)
+
+gr_df_prime <- gr_df %>% left_join(gr_df_max) %>% 
+  left_join(gr_df_min) %>%
+  select(strain, temp, gr, gr_max, gr_min) %>%
+  left_join(just_ave_lag) %>%
+  select(-lag_error)
+
+gr_df %>% ggplot() +
+  geom_line(aes(x = temp, y = gr, color = strain, group = strain))
+
+
+```
+
+
+```{r, fig.width=10}
+cols = c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3")
+
+
+```
+
+
+```{r}
+dont_make_507 <- make_all_the_things[!(make_all_the_things$strain == "507"), ]
+
+p11 <- dont_make_507 %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = strain), size = 1) +
+  facet_wrap(~temp) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  #ggtitle("V. alginolyticus strains vs. temperature")+
+    scale_color_manual(values = cols)+
+  scale_y_continuous(breaks = seq(0, 1.45, 0.5), limits = c(0, 1.45))
+
+
+
+p11
+
+p44 <- dont_make_507 %>% ggplot() +
+  geom_line(aes(x = time, y = od, color = temp), size = 1) +
+  facet_wrap(~strain) +
+  theme_bw() +
+  xlab("Time (hrs)")+
+  ylab("Optical Density (600nm)")+
+  labs(color = "Strain") +
+  #ggtitle("V. alginolyticus strains vs. temperature")+
+    #scale_color_manual(values = cols)+
+  scale_y_continuous(breaks = seq(0, 1.45, 0.5), limits = c(0, 1.45))
+
+
+
+p44
+```
+
+
+# ```{r}
+# average_od <- stat_phase %>% select(c(strain, od)) %>%
+#   group_by(strain) %>%
+#   summarize_if(is.numeric, mean) %>%
+#   ungroup() %>%
+#   rename(ave_od = od)
+# 
+# od_diff_plot <- stat_phase %>% left_join(average_od) %>%
+#   select(strain, temp, od, ave_od) %>%
+#   group_by(strain, temp) %>%
+#   mutate(od_diff = od - ave_od) %>%
+#   mutate(error = stderr(od_diff)) %>%
+#   summarize_if(is.numeric, mean) %>%
+#   ungroup() %>%
+#   mutate(max_od = od_diff + error,
+#          min_od = od_diff - error)
+# 
+# ```
+# ```{r}
+# average_time <- lag_phase %>% select(c(strain, time)) %>%
+#   group_by(strain) %>%
+#   summarize_if(is.numeric, mean) %>%
+#   ungroup() %>%
+#   rename(ave_time = time)
+# 
+# 
+# time_diff_plot <- lag_phase %>% left_join(average_time) %>%
+#   select(strain, temp, time, ave_time) %>%
+#   group_by(strain, temp) %>%
+#    mutate(time_diff = time - ave_time) %>%
+#   mutate(error = stderr(time_diff)) %>%
+#   summarize_if(is.numeric, mean) %>%
+#   ungroup() %>%
+#   mutate(max_time = time_diff + error,
+#          min_time = time_diff - error)
+# 
+# cols = c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3", "red")
+# 
+
+
+
+```{r, fig.width=10}
+# od_diff_plot$strain <- factor(od_diff_plot$strain, levels = c("ATCC", "507", "580", "551"))
+# 
+# p11<- od_diff_plot %>% ggplot() +
+#   geom_bar(aes(x = strain, y = od_diff, fill = temp), stat = "identity", position = position_dodge(), width = 0.75)+
+#   geom_errorbar(aes(x = strain, ymax = max_od, ymin = min_od, fill = temp), 
+#                  position = position_dodge(width = 0.75), size = 1, width = 0.5, alpha = 0.5) +
+#   geom_text(aes(x = strain, y = od_diff + 0.02 * sign(od_diff), fill = temp, 
+#                                        label = round(od_diff, 1)), position = position_dodge(width = 0.75), size = 3)+
+#   coord_flip() + 
+#   geom_vline(xintercept = 1.5, linetype = "dashed")+
+#   geom_vline(xintercept = 2.5, linetype = "dashed")+
+#   geom_vline(xintercept = 3.5, linetype = "dashed")+
+#   theme_classic()+ 
+# #  scale_x_reverse()+
+#  # scale_y_continuous(breaks = seq(-0.75, 0.75, 0.2), limits = c(-0.75, 0.75)) +
+#   ylab("Optical Density Difference (600nm)")+
+#   xlab("Strain ID")+
+#   labs(fill = "Temperature")+
+#     scale_fill_manual(values = cols)+
+#   ggtitle("Stationary Phase Optical Density vs. Temperature (c)")
+# 
+# p11
+```
+
+```{r, fig.width=10}
+# p22 <- time_diff_plot %>% ggplot() +
+#   geom_bar(aes(x = strain, y = time_diff, fill = temp), stat = "identity", position = position_dodge(), width = 0.75)+
+#   geom_errorbar(aes(x = strain, ymax = max_time, ymin = min_time, fill = temp), 
+#                  position = position_dodge(width = 0.75), size = 1, width = 0.5, alpha = 0.5) +
+#   geom_text(data = time_diff_plot, aes(x = strain, y = time_diff + 0.2 * sign(time_diff), fill = temp, 
+#                                        label = round(time_diff, 1)), position = position_dodge(width = 0.75), size = 3)+
+#   coord_flip() +
+#   geom_vline(xintercept = 1.5, linetype = "dashed")+
+#   geom_vline(xintercept = 2.5, linetype = "dashed")+
+#   geom_vline(xintercept = 3.5, linetype = "dashed")+
+#   theme_classic()+
+#  # scale_y_continuous(breaks = seq(-0.75, 0.75, 0.2), limits = c(-0.75, 0.75)) +
+#   ylab("Time Difference (hrs)")+
+#   xlab("Strain ID")+
+#   labs(fill = "Temperature (C)")+
+#     scale_fill_manual(values = cols)+
+#   ggtitle("Duration of Lag Phase vs. Temperature (C)")
+# 
+# p22
+```
+
+
+```{r, fig.width=12}
+# library(ggpubr)
+# 
+# ggarrange(p22, p11, ncol = 2, common.legend = TRUE)
+```
+
+
+
+
+```{r}
+# make <- read_excel("./gr_and _lag.xlsx", 1) %>%
+#   mutate(max_gr = round(max_gr, 2),
+#          lag_time = round(lag_time, 2))
+# 
+# make2 <- read_excel("./gr_and _lag.xlsx", 2) %>%
+#   mutate(max_gr = round(max_gr, 2),
+#          lag_time = round(lag_time, 2))
+# 
+# make3 <- make
+# make3$temp <- as.factor(as.numeric(make3$temp))
+# 
+# make %>% ggplot() +
+#   geom_point(aes(x = temp, y = max_gr)) +
+#   geom_line(aes(x = temp, y = max_gr), size =2) +
+#   scale_fill_manual(values = cols) +
+#   scale_x_continuous(breaks = seq(24, 40, 2), limits = c(24, 40))+
+#   theme_bw() +
+#   xlab("Temperature (C)") +
+#   ylab("Fastest Doubling Time")
+# 
+# 
+# make %>% ggplot() +
+#   geom_bar(aes(x = temp, y = lag_time, fill = temp), stat = "identity")
+
+```
+
+
+```{r}
+minus_507 <- gr_df_prime[!(gr_df$strain == "507"), ]
+
+use <- minus_507 
+
+use1 <- use %>% select(-strain) %>%
+  group_by(temp) %>%
+  mutate(gr_error = stderr(gr),
+         lag_error = stderr((lag_time))) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(max_gr = gr + gr_error,
+         min_gr = gr - gr_error,
+         max_lag = lag_time + lag_error,
+         min_lag =lag_time - lag_error) %>%
+  mutate(tag = "dude")
+
+
+```
+
+
+
+```{r}
+
+p1 <- use %>% ggplot() +
+  geom_point(aes(x = temp, y = gr, color = strain)) +
+  geom_line(aes(x = temp, y = gr, group = strain, color = strain)) +
+  geom_errorbar(aes(x = temp, ymax = gr_max, ymin = gr_min, color = strain), width = 0.4) +
+  scale_fill_manual(values = cols) +
+  theme_bw() +
+  xlab("Temperature (C)") +
+  ylab("Doubling Time (min)")+
+  labs(color = "Strain")+
+  geom_vline(xintercept = 4, linetype = "dashed", color = "black")+
+  geom_vline(xintercept = 7, linetype = "dashed", color = "black")
+
+p1
+
+p2<- use %>% ggplot() +
+  geom_point(aes(x = temp, y = lag_time, color = strain)) +
+  geom_line(aes(x = temp, y = lag_time, group = strain, color = strain)) +
+  geom_errorbar(aes(x = temp, ymax = max_lag, ymin = min_lag, color =strain), width = 0.4) +
+  scale_fill_manual(values = cols) +
+  theme_bw() +
+  xlab("Temperature (C)") +
+  ylab("Duration of Lag Time (hrs)")+
+  labs(color = "Strain")+
+  geom_vline(xintercept = 4, linetype = "dashed", color = "black")+
+  geom_vline(xintercept = 7, linetype = "dashed", color = "black")
+
+
+p2
+
+```
+
+
+```{r, fig.height=7, fig.width=6}
+
+library(ggpubr)
+ggarrange(p1, p2, ncol = 1, align = "hv")
+```
+
+
+```{r}
+p1 <- use %>% ggplot() +
+  geom_point(aes(x = temp, y = gr, color = strain)) +
+  geom_line(aes(x = temp, y = gr, group = strain, color = strain)) +
+  geom_errorbar(aes(x = temp, ymax = gr_max, ymin = gr_min, color = strain), width = 0.4) +
+  scale_fill_manual(values = cols) +
+  theme_bw() +
+  xlab("Temperature (C)") +
+  ylab("Doubling Time (min)")+
+  labs(color = "Strain")
+
+p1
+
+p2<- use %>% ggplot() +
+  geom_point(aes(x = temp, y = lag_time, color = strain)) +
+  geom_line(aes(x = temp, y = lag_time, group = strain, color = strain)) +
+  geom_errorbar(aes(x = temp, ymax = max_lag, ymin = min_lag, color =strain), width = 0.4) +
+  scale_fill_manual(values = cols) +
+  theme_bw() +
+  xlab("Temperature (C)") +
+  ylab("Duration of Lag Time (hrs)")+
+  labs(color = "Strain")
+
+
+p2
+
+```
+
+```{r}
+saveRDS(use, "./temp_FINAL.rds")
+```
+
+```{r}
+library(FSA)
+options(digits = 4)
+
+print("551")
+lag_551 <- lag_phase %>% subset(strain == "551")
+shapiro.test(lag_551$time)
+kruskal.test(time ~ temp, data = lag_551)
+dunnTest(lag_551$time ~ lag_551$temp, method = "holm")
+```
+
+
+```{r}
+print("580")
+lag_580 <- lag_phase %>% subset(strain == "580")
+shapiro.test(lag_580$time)
+kruskal.test(time ~ temp, data = lag_580)
+dunnTest(lag_580$time ~ lag_580$temp, method = "holm")
+
+```
+
+```{r}
+print("ATCC")
+lag_atcc <- lag_phase %>% subset(strain == "ATCC")
+shapiro.test(lag_atcc$time)
+kruskal.test(time ~ temp, data = lag_atcc)
+dunnTest(lag_atcc$time ~ lag_atcc$temp, method = "holm")
+```
+
+```{r}
+early_log_range <- binned %>% select(-total_hits, -total_min, -reading, -time) %>%
+  subset(od <= 0.2) %>%
+  rename(early_log_od = od, 
+         early_log_min = reading_min)
+
+late_log_range <- binned %>% select(-total_hits, -total_min, -reading, -time) %>%
+  subset(od > 0.65) %>%
+  rename(late_log_od = od,
+         late_log_min = reading_min) 
+
+gr_df_range <- left_join(early_log_range, late_log_range)
+
+gr_df_all_range <- gr_df_range %>% mutate(time_diff = late_log_min - early_log_min) %>%
+  mutate(ln_late_log = ln(late_log_od)) %>%
+  mutate(ln_early_log = ln(early_log_od)) %>%
+  mutate(gr_constant = ((ln_late_log) - (ln_early_log)) / time_diff) %>%
+  mutate(gr = 0.6931 / gr_constant) %>%
+  select(strain, temp, gr)
+
+```
+
+
+```{r}
+print("551")
+
+gr_551 <- gr_df_all_range %>% subset(strain == "551") %>% na.omit()
+shapiro.test(gr_551$gr)
+kruskal.test(gr ~ temp, data = gr_551)
+dunnTest(gr_551$gr ~ gr_551$temp, method = "holm")
+```
+
+```{r}
+print("580")
+
+gr_580 <- gr_df_all_range %>% subset(strain == "580") %>% na.omit()
+shapiro.test(gr_580$gr)
+kruskal.test(gr ~ temp, data = gr_580)
+dunnTest(gr_580$gr ~ gr_580$temp, method = "holm")
+```
+
+```{r}
+print("ATCC")
+
+gr_atcc <- gr_df_all_range %>% subset(strain == "ATCC") %>% na.omit()
+shapiro.test(gr_atcc$gr)
+kruskal.test(gr ~ temp, data = gr_atcc)
+dunnTest(gr_atcc$gr ~ gr_atcc$temp, method = "holm")
+```
+
+
+

@@ -1,0 +1,66 @@
+---
+title: "pca_plots"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+polar <- read.csv("./high_res_raw_data/high_res_polar_endo.csv") %>%
+  pivot_longer(cols = -retention_time, names_to = "names", values_to = "values") %>%
+  mutate(names2 = names) 
+
+polar$names2 = substr(polar$names2,1,nchar(polar$names2)-2)
+
+polar_clean <-  polar %>% pivot_wider(names_from = retention_time, values_from = values)
+```
+
+```{r}
+nonpolar <- read.csv("./high_res_raw_data/high_res_nonpolar_endo.csv") %>%
+  pivot_longer(cols = -retention_time, names_to = "names", values_to = "values") %>%
+  mutate(names2 = names) 
+
+nonpolar$names2 = substr(nonpolar$names2,1,nchar(nonpolar$names2)-2)
+
+nonpolar_clean <-  nonpolar %>% pivot_wider(names_from = retention_time, values_from = values)
+```
+
+
+```{r}
+polar_pca <- prcomp(polar_clean[,c(3:2497)],
+                   center = TRUE,
+                   scale. = TRUE)
+
+nonpolar_pca <- prcomp(nonpolar_clean[,c(3:5811)],
+                   center = TRUE,
+                   scale. = TRUE)
+```
+
+
+```{r}
+library(ggfortify)
+polar_plot <- autoplot(polar_pca,
+                       data = polar_clean, 
+                       shape = 'names2')
+  
+polar_plot
+
+nonpolar_plot <- autoplot(nonpolar_pca,
+                       data = nonpolar_clean, 
+                       fill = 'names2',
+                       color = "names2")
+  
+nonpolar_plot
+```
+```{r}
+nonpolar_plot <- autoplot(nonpolar_clean)
+  
+nonpolar_plot
+```
+
+
+

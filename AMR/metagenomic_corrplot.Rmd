@@ -1,0 +1,332 @@
+---
+title: "metagenomic_corr"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggcorrplot)
+```
+
+```{r}
+all_args_class<- readRDS("./all_args_class.rds")
+```
+
+
+
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, biological_sex, ethnicity, race, age, gi_symptoms_past_48_hours, food_poisioning_past_month, symptoms_past_3_to_30_days, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, biological_sex, ethnicity, race, age, gi_symptoms_past_48_hours, food_poisioning_past_month, symptoms_past_3_to_30_days, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#combine
+all_survey <- rbind(adult_survey, child_survey)
+
+#pivot to longer and pull IDs
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(all_survey) %>%
+  pivot_wider(names_from = "class", values_from = "count")# %>% 
+  #select(-participant_id)
+
+#mask NAs as no response 
+pivot_mash <- pivot_mash[!is.na(pivot_mash$biological_sex), ] #remove participants not in data
+pivot_mash$gi_symptoms_past_48_hours[is.na(pivot_mash$gi_symptoms_past_48_hours)] <- "No"
+pivot_mash$uti_past_month[is.na(pivot_mash$uti_past_month)] <- "No"
+pivot_mash$any_antibiotic_past_week[is.na(pivot_mash$any_antibiotic_past_week)] <- "No"
+pivot_mash$any_antibiotics_past_month[is.na(pivot_mash$any_antibiotics_past_month)] <- "No"
+pivot_mash$healthcare_exposure[is.na(pivot_mash$healthcare_exposure)] <- "No"
+
+
+#case when odd survey responses
+pivot_mash <- pivot_mash %>% mutate(gi_sym = case_when(
+  .$gi_symptoms_past_48_hours == "I have not had any of the above symptoms" ~ "No",
+  .$gi_symptoms_past_48_hours == "My child has not had any of the above symptoms" ~ "No",
+  .$gi_symptoms_past_48_hours == "No Response" ~ "No",
+  TRUE ~ "Yes")) %>%
+  mutate(gi_sym = case_when(
+    .$symptoms_past_3_to_30_days == "Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Diarrhea" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Diarrhea,Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Constipation" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Diarrhea" ~ "Yes",
+    .$symptoms_past_3_to_30_days == "Nausea/Vomiting,Diarrhea,Constipation" ~ "Yes",
+    TRUE ~ gi_sym)) %>%
+  mutate(food_p = case_when(
+    .$food_poisioning_past_month == "No" ~ "No",
+    TRUE ~ "Yes")) %>%
+  mutate(uti = case_when(
+    .$uti_past_month == "My child did not have a urinary tract infection" ~ "No",
+    .$uti_past_month == "No" ~ "No",
+    TRUE ~ "Yes")) %>%
+  mutate(take_ab = case_when(
+    .$any_antibiotic_past_week == "No" ~"No",
+    TRUE ~ "Yes")) %>%
+  mutate(take_ab = case_when(
+    .$any_antibiotics_past_month == "Yes, oral antibiotics" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, antibiotics through an IV,No" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, topical antibiotics (excluding first aid ointment)" ~ "Yes",
+    .$any_antibiotics_past_month == "Yes, oral antibiotics,No" ~ "Yes",
+    TRUE ~ take_ab)) %>%
+  mutate(health_exp = case_when(
+    .$healthcare_exposure == "No" ~ "No",
+    .$healthcare_exposure == "No, my child does not have regular exposure to healthcare environments" ~ "No",
+    .$healthcare_exposure == "No, I do not have regular exposure to healthcare environments" ~ "No",
+    TRUE ~ "Yes")) %>% 
+  select(-c(gi_symptoms_past_48_hours, symptoms_past_3_to_30_days, food_poisioning_past_month, uti_past_month, any_antibiotic_past_week, any_antibiotics_past_month, healthcare_exposure))
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_demo <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`) %>% select(-participant_id)
+
+```
+
+```{r, fig.width=10}
+library(ggcorrplot)
+
+ss <- clean_corr_demo %>% pivot_longer(cols = c(biological_sex, ethnicity, race, age, gi_sym, food_p, uti, take_ab, health_exp), names_to = "names", values_to = "values")
+
+#check <- model.matrix(~0+., data=dd)
+
+clean_corr_demo <- clean_corr_demo[, c(5:22, 1:4, 23:28)]
+
+model.matrix(~0+., data=clean_corr_demo) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+
+```{r, fig.width=10}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, regular_exposure_to_env_risk))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, regular_exposure_to_env_risk))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+space <- separate(all_survey, 'regular_exposure_to_env_risk', paste("risk", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id),names_to = "temp", values_to = "env_risk")
+
+remove_extras <- stack[!is.na(stack$env_risk), ]
+
+remove_extras <- remove_extras %>% mutate(env_risk = case_when(
+  .$env_risk == "I do not have regular exposure to any of these choices" ~ "No regular exposure",
+  .$env_risk == "My child does not have regular exposure to any of these choices" ~ "No regular exposure",
+  .$env_risk == "Childcare facilities and/or extensive contact with children <6 yrs" ~ "Childcare facilities",
+  TRUE ~ env_risk)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(remove_extras)%>%
+  pivot_wider(names_from = "class", values_from = "count") #%>% 
+  #select(-participant_id)
+
+pivot_mash$env_risk[is.na(pivot_mash$env_risk)] <- "No regular exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_env <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)%>% select(-participant_id)
+
+
+model.matrix(~0+., data=clean_corr_env) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+```{r, fig.width=10}
+#check <- model.matrix(~0+., data=test)
+
+#model.matrix(~0+., data=clean_corr_env) %>% 
+#  cor(use="pairwise.complete.obs") %>% 
+#  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+ # theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+  #      axis.text.y = element_text(size = 6.5))
+```
+
+
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, treated_recreational_water_sources))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, treated_recreational_water_sources))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+#treated water
+space <- separate(all_survey, 'treated_recreational_water_sources', paste("treated", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id), names_to = "temp", values_to = "treated")
+
+remove_extras <- stack[!is.na(stack$treated), ]
+
+remove_extras <- remove_extras %>% mutate(treated = case_when(
+  .$treated == "I was not exposed to treated recreational water" ~ "No exposure",
+  .$treated == "My child was not exposed to treated recreational water" ~ "No exposure",
+  .$treated == "\tNeighborhood/city/public pool" ~ "Neighborhood/city/public pool",
+  TRUE ~ treated)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% left_join(remove_extras) %>%
+ pivot_wider(names_from = "class", values_from = "count") #%>% 
+  #select(-participant_id)
+
+pivot_mash$treated[is.na(pivot_mash$treated)] <- "No exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_twater <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)%>% select(-participant_id)
+
+
+model.matrix(~0+., data=clean_corr_twater) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+
+```
+
+```{r}
+
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, untreated_recreational_water_sources))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, untreated_recreational_water_sources))
+
+all_survey <- rbind(adult_survey, child_survey)
+
+#untreated water
+space <- separate(all_survey, 'untreated_recreational_water_sources', paste("untreated", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id), names_to = "temp", values_to = "untreated")
+
+remove_extras <- stack[!is.na(stack$untreated), ]
+
+remove_extras <- remove_extras %>% mutate(untreated = case_when(
+  .$untreated == "I was not exposed to untreated recreational water" ~ "No exposure",
+  .$untreated == "My child was not exposed to untreated recreational water" ~ "No exposure",
+  .$untreated == "\tStream/river (designated swimming area)" ~ "Stream/river",
+  .$untreated == "\tOcean (designated swimming area)" ~ "Ocean",
+  .$untreated == "Ocean (not designated swimming area)" ~ "Ocean",
+  .$untreated == "Ocean (designated swimming area)" ~ "Ocean",
+  .$untreated == "Stream/river (designated swimming area)" ~ "Stream/river",
+  .$untreated == "Stream/river (not designated swimming area)" ~ "Stream/river",
+  .$untreated == "Freshwater lake or pond (designated swimming area)" ~ "Freshwater lake or pond",
+  .$untreated == "Freshwater lake or pond (not designated swimming area)" ~ "Freshwater lake or pond",
+  TRUE ~ untreated)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% 
+  pivot_wider(names_from = "class", values_from = "count") %>%
+  left_join(remove_extras)#%>% 
+  #select(-participant_id)
+
+pivot_mash$untreated[is.na(pivot_mash$untreated)] <- "No exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_uwater <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`)%>% select(-participant_id)
+
+
+model.matrix(~0+., data=clean_corr_uwater) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+
+```
+
+
+
+```{r}
+#yank adult survey data
+adult_survey <- readRDS("../clean_adult_FINAL.rds") %>%
+  select(c(participant_id, pets))
+
+#yank child survey data
+child_survey <- readRDS("../clean_child_FINAL.rds")%>%
+  select(c(participant_id, pets))
+
+all_survey <- rbind(adult_survey, child_survey)
+space <- separate(all_survey, 'pets', paste("pet", 1:4, sep="_"), sep=",")
+
+stack <- space %>% pivot_longer(
+  cols = c(-participant_id), names_to = "temp", values_to = "pets")
+
+remove_extras <- stack[!is.na(stack$pets), ]
+
+remove_extras <- remove_extras %>% mutate(pets = case_when(
+  .$pets == "I do not live with any companion animals" ~ "No pets",
+  .$pets == "My child does not live with any companion animals" ~ "No pets",
+  .$pets == "\tDogs" ~ "Dogs",
+  .$pets == "\tBirds" ~ "Birds",
+  TRUE ~ pets)) %>% select(-temp)
+
+
+pivot_mash <- all_args_class %>% select(-esbl) %>% 
+  pivot_wider(names_from = "class", values_from = "count") %>%
+  left_join(remove_extras)#%>% 
+  #select(-participant_id)
+
+pivot_mash$pets[is.na(pivot_mash$pets)] <- "No exposure"
+
+#zeroize any NAs in the AMR fields
+pivot_mash[is.na(pivot_mash)] <- 0
+
+#add togeather to get total AMR burden
+clean_corr_pets <- pivot_mash %>% mutate(total_ar = AMINOGLYCOSIDE +`BETA-LACTAM` +GLYCOPEPTIDE+ LINCOSAMIDE + MACROLIDE + SULFONAMIDE + TETRACYCLINE + TRIMETHOPRIM + STREPTOTHRICIN + `LINCOSAMIDE/STREPTOGRAMIN`+PHENICOL + `MACROLIDE/LINCOSAMIDE/STREPTOGRAMIN` + `QUATERNARY AMMONIUM` + FOSFOMYCIN + QUINOLONE + `PHENICOL/QUINOLONE` + BLEOMYCIN + `AMINOGLYCOSIDE/QUINOLONE`) %>% select(-participant_id)
+
+
+model.matrix(~0+., data=clean_corr_pets) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+
+```{r, fig.width=10}
+xx <- left_join(clean_corr_env, clean_corr_twater) %>%
+  left_join(clean_corr_uwater) %>%
+  left_join(clean_corr_pets) 
+
+
+
+xx <- xx[, c(2:19,1,21:23, 20)]
+
+model.matrix(~0+., data=xx) %>% 
+  cor(use="pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = T, type="lower", lab=F, lab_size=1.5)+
+  theme(axis.text.x = element_text(size = 6.5, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size = 6.5))
+```
+
+
+

@@ -1,0 +1,116 @@
+---
+title: "MPN_compare_timeseries"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+#sample1
+vp1 <- read_csv("./master_mpns/master_mpn_sample1_vp.csv") %>%
+  mutate(date = as.Date("2022-06-15")) %>%
+  mutate(target = "Vp")
+
+vv1 <- read_csv("./master_mpns/master_mpn_sample1_vv.csv") %>%
+  mutate(date = as.Date("2022-06-15"))%>%
+  mutate(target = "Vv")
+
+#sample2
+
+vp2 <- read_csv("./master_mpns/master_mpn_sample2_vp.csv") %>%
+  mutate(date = as.Date("2022-06-29"))%>%
+  mutate(target = "Vp")
+
+vv2 <- read_csv("./master_mpns/master_mpn_sample2_vv.csv") %>%
+  mutate(date = as.Date("2022-06-29"))%>%
+  mutate(target = "Vv")
+
+#sample3
+vp3 <- read_csv("./master_mpns/master_mpn_sample3_vp.csv") %>%
+  mutate(date = as.Date("2022-07-13"))%>%
+  mutate(target = "Vp")
+
+vv3 <- read_csv("./master_mpns/master_mpn_sample3_vv.csv") %>%
+  mutate(date = as.Date("2022-07-13"))%>%
+  mutate(target = "Vv")
+
+#sample4
+vp4 <- read_csv("./master_mpns/master_mpn_sample4_vp.csv") %>%
+  mutate(date = as.Date("2022-07-27"))%>%
+  mutate(target = "Vp")
+
+vv4 <- read_csv("./master_mpns/master_mpn_sample4_vv.csv") %>%
+  mutate(date = as.Date("2022-07-27"))%>%
+  mutate(target = "Vv")
+
+all_mpn <- rbind(vp1, vp2, vv1, vv2, vp3, vv3, vp4, vv4)
+```
+
+
+```{r}
+all_mpn$sample = substr(all_mpn$sample,1,nchar(all_mpn$sample)-1)
+
+clean_mpn <- all_mpn %>% mutate(treat_tag = case_when(
+  .$sample == "FCT" ~ "Floating Cage 2 hr",
+  .$sample == "FCC" ~ "Floating Cage Control",
+  .$sample == "FBT" ~ "Floating Bag 2 hr",
+  .$sample == "FBC" ~ "Floating Bag Control",
+  TRUE ~ "error")) %>%
+  mutate(target = recode(target,
+                         "Vp" = "V. parahaemolyticus",
+                         "Vv" = "V. vulnificus"))
+
+```
+
+```{r}
+y_lab <- parse(text='MPN(g^-1)')
+
+
+y_lab <- expression("MPN g"~ phantom()^{-1})
+```
+
+
+```{r, fig.width=8}
+clean_mpn$value <- replace(clean_mpn$value, clean_mpn$value == 0, 1) #add to avoid `-Inf values for zeros
+
+
+clean_mpn %>% ggplot() +
+  geom_boxplot(aes(x = target, y = value, fill = treat_tag)) +
+  facet_wrap(~date)+
+  scale_y_log10()+
+  theme_bw() +
+  xlab("Target")+
+  ylab(y_lab)+
+  labs(fill = "Treatment and\nEquipment")
+
+
+clean_mpn %>% ggplot() +
+  geom_boxplot(aes(x = as.factor(date), y = value, fill = treat_tag))+
+  facet_wrap(~target)+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))+
+    scale_y_log10()+
+    xlab("Sample Date")+
+    ylab(y_lab)+
+    labs(fill = "Treatment and\nEquipment")
+
+```
+
+
+```{r}
+write.csv(clean_mpn, "./FULL_MPN.csv")
+```
+
+```{r}
+ave_mpn <- clean_mpn %>% select(sample, date, value, target) %>%
+  group_by(sample, date, target) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+```
+
+
+

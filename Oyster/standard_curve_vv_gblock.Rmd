@@ -1,0 +1,74 @@
+---
+title: "standard_curve_gblock_vv"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+raw <- read.csv("./std_curves/vv_gblock_std_curve_good.csv") %>%
+  select(-c(target)) %>%
+  mutate(target = "Vv")
+```
+
+
+```{r}
+clean <- raw %>% mutate(taq = case_when(
+  .$sample == "VvSTD plat" ~ "platinum",
+  .$sample == "VvSTD Norm" ~ "regular",
+  TRUE ~ "water"))
+
+hex_only <- clean %>% subset(fluor == "HEX")
+cy5_only <- clean %>% subset(fluor == "Cy5")
+
+#hex_only$sq <- as.factor(as.numeric(hex_only$sq))
+
+```
+
+```{r, fig.width=8}
+hex_plot <- hex_only %>% select(content, cq, taq, sq) %>%
+  group_by(content, sq, taq) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() 
+
+
+hex_plot %>% ggplot() +
+  geom_point(aes(x = sq, y = cq, color = sq, shape = taq), size = 3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust =1))+
+  scale_shape_discrete(guide ="none")+
+  xlab("Concentration/Content")+
+  ylab("Cq Value") +
+  ggtitle("G-Block Standard Curve Vv (HEX)")+
+  labs(color = "Concentration/\nContent")
+```
+```{r}
+no_controls <- hex_plot %>% subset(content == "Std")
+write.csv(no_controls, "./vv_taq_compare.csv")
+```
+
+
+```{r}
+cy5_plot <- cy5_only %>% select(content, cq, taq, sq) %>%
+  group_by(content, sq, taq) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() 
+
+
+cy5_plot %>% ggplot() +
+  geom_point(aes(x = sq, y = cq, color = sq, shape = taq), size = 3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust =1))+
+  scale_shape_discrete(guide ="none")+
+  xlab("Concentration/Content")+
+  ylab("Cq Value") +
+  ggtitle("G-Block Standard Curve Vv (Cy5)")+
+  labs(color = "Concentration/\nContent")+
+    scale_y_continuous(breaks = seq(15, 40, 10), limits = c(15, 40))
+
+```
+
+

@@ -1,0 +1,299 @@
+---
+title: "power_line_plots"
+output: html_document
+---
+
+
+```{r}
+#load in libs
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(ggfortify)
+library(ggforce)
+```
+
+
+```{r}
+spades_clean <- readRDS("./raw_data/spades_clean_shotgun.rds")
+bwa_clean <- readRDS("./raw_data/bwa_clean_shotgun.rds")
+irma_clean <- readRDS("./raw_data/irma_clean_shotgun.rds") %>%
+  mutate(raw_reads_1 = "a",
+         raw_reads_2 = "b",
+         estimated_coverage = "c",
+         trimmed_read_1 = "d",
+         trimmed_read_2 = "e")
+
+```
+
+*************************************************************************************************************************************
+
+```{r}
+make_wuhan_power <- function(df){
+  make_this <- df %>% select(-c(raw_reads_1, raw_reads_2, estimated_coverage, trimmed_read_1, trimmed_read_2)) %>%
+  mutate(error_total = snp_incorrect) %>%
+  select(-replicate) %>%
+  group_by(variant, paired_ends, coverage, errors) %>% 
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+  
+  return(make_this)
+}
+
+make_delta_power <- function(df){
+  make_this <- df %>% select(-c(raw_reads_1, raw_reads_2, estimated_coverage, trimmed_read_1, trimmed_read_2)) %>%
+  mutate(snp_correct = 34 - snp_correct) %>%
+  rename(snp_misses = "snp_correct") %>%
+  mutate(error_total = snp_misses + snp_incorrect) %>%
+  select(-replicate) %>%
+  group_by(variant, paired_ends, coverage, errors) %>% 
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+  
+  return(make_this)
+  
+}
+```
+
+
+```{r}
+#add in error points
+########################################## SPADES #########################################################################
+delta_power <- subset(spades_clean, variant == "Delta")
+spades_delta_power <- make_delta_power(delta_power)
+spades_delta_power$coverage <- factor(spades_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+
+
+wuhan_power <- subset(spades_clean, variant == "Wuhan")
+spades_wuhan_power <- make_wuhan_power(wuhan_power)
+spades_wuhan_power$coverage <- factor(spades_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+
+########################################## BWA #########################################################################
+delta_power_bwa <- subset(bwa_clean, variant == "Delta")
+bwa_delta_power <- make_delta_power(delta_power_bwa)
+bwa_delta_power$coverage <- factor(bwa_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+
+
+wuhan_power_bwa <- subset(bwa_clean, variant == "Wuhan")
+bwa_wuhan_power <- make_wuhan_power(wuhan_power_bwa)
+bwa_wuhan_power$coverage <- factor(bwa_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+
+########################################## IRMA #########################################################################
+delta_power_irma <- subset(irma_clean, variant == "Delta")
+irma_delta_power <- make_delta_power(delta_power_irma)
+irma_delta_power$coverage <- factor(irma_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+
+
+wuhan_power_irma <- subset(irma_clean, variant == "Wuhan")
+irma_wuhan_power <- make_wuhan_power(wuhan_power_irma)
+irma_wuhan_power$coverage <- factor(irma_delta_power$coverage, 
+ levels = c("0.1X", "0.5X", "1X", "5X", "10X", "15X", "20X", "25X", "50X", "75X", "100X", "1000X"))
+```
+
+```{r}
+#make label groups
+##################################################### SPADES #########################################################
+spades_delta_power <- unite(spades_delta_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+
+spades_wuhan_power <- unite(spades_wuhan_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+
+############################################################# BWA ########################################################
+bwa_delta_power <- unite(bwa_delta_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+
+bwa_wuhan_power <- unite(bwa_wuhan_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+
+############################################################# IRMA ########################################################
+irma_delta_power <- unite(irma_delta_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+
+irma_wuhan_power <- unite(irma_wuhan_power, group_name, c(paired_ends, errors), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_IE" = "PE150 Illumina Errors",
+                             "PE150_P" = "PE150 Perfect",
+                             "PE250_IE" = "PE250 Illumina Errors",
+                             "PE250_P" = "PE250 Perfect",
+                             "PE300_IE" = "PE300 Illumina Errors",
+                             "PE300_P" = "PE300 Perfect")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+```{r, fig.width=8}
+#SPADES
+error_curve_wuhan <- spades_wuhan_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("A: SPADES Assembly + Wuhan Variant")
+
+p1 <- error_curve_wuhan + theme(axis.text.x = element_text(angle = 90, hjust =1))
+p1
+
+#BWA
+error_curve_wuhan_bwa <- bwa_wuhan_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("B: BWA Assembly + Wuhan Variant")
+
+p2 <- error_curve_wuhan_bwa + theme(axis.text.x = element_text(angle = 90, hjust =1))
+p2
+
+#IRMA
+error_curve_wuhan_irma <- irma_wuhan_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("C: IRMA Assembly + Wuhan Variant")
+
+p3<- error_curve_wuhan_irma + theme(axis.text.x = element_text(angle = 90, hjust =1))
+p3
+```
+
+```{r, fig.width=8}
+#SPADES
+error_curve <- spades_delta_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("A: SPADES Assembly + Delta Variant")
+
+p4 <- error_curve + theme(axis.text.x = element_text(angle = 90, hjust =1))
+p4
+
+#BWA
+error_curve_bwa <- bwa_delta_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("B: BWA Assembly + Delta Variant")
+
+p5<- error_curve_bwa + theme(axis.text.x = element_text(angle = 90, hjust =1))
+p5
+
+#IRMA
+error_curve_irma <- irma_delta_power %>% ggplot() +
+  geom_point(aes(x = coverage, y = error_total, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = error_total, color = paired_ends, linetype = errors, group = interaction(group_name)), size =1) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "Error Type") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("C: IRMA Assembly + Delta Variant")
+
+p6<- error_curve_irma + theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+p6
+```
+
+
+```{r, fig.width=10}
+library(ggpubr)
+make_wuhan <- ggarrange(p1, p2, p3, common.legend = TRUE)
+make_wuhan
+ggsave(make_wuhan, file = "./figure_S1.png")
+
+```
+
+```{r, fig.width=10}
+make_delta <- ggarrange(p4, p5, p6, common.legend = TRUE)
+make_delta
+ggsave(make_delta, file = "./figure_1.png")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

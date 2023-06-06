@@ -1,0 +1,295 @@
+---
+title: "power_lines_plot_part_delta"
+output: html_document
+---
+
+```{r}
+#load in libs
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(ggfortify)
+library(ggforce)
+```
+
+```{r}
+#raw <- read_excel("./raw_data/Delta_Illumina_amp_IRMA_clean_09.15.2021.xlsx")
+raw <- readRDS("./raw_data/delta_clean_BWA_amp_09.29.2021.rds")
+#tag total rows in the dataset
+total_rows <- nrow(raw)
+```
+
+```{r}
+#beautify columns
+clean_the_cols <- function(df) {
+  
+  temp <- str_split_fixed(df$sample, "_", 6) %>% 
+  as_tibble() %>%
+  mutate(tag = 1:total_rows) %>% 
+  rename(variant = "V1",
+         primer = "V2",
+         paired_ends = "V3",
+         coverage = "V4",
+         errors = "V5",
+         replicate = "V6")
+
+make_this <- df %>% mutate(tag = 1:total_rows) %>%
+  left_join(temp) %>%
+  select(-c(sample, tag))
+
+make_this <- make_this[,c(5:10, 1:4)]
+
+return(make_this)
+}
+
+#count the sequencing errors
+count_errors <- function(df){
+  make_this <- df %>% mutate(total_snp_errors = snp_incorrect,
+                      total_indel_errors = indel_incorrect,
+                      total_errors = total_snp_errors) %>%            # for not total errors = only SNP errors
+  select(-replicate) %>%
+  group_by(variant, primer, paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+  return(make_this)
+}
+```
+
+```{r}
+#clean the data
+clean <- clean_the_cols(raw) %>%
+  count_errors()
+
+clean$coverage <- factor(clean$coverage, levels = c(
+"1X", "2X", "3X", "4X", "5X", "6X", "7X", "8X", "9X", "10X", "15X", "20X", "25X", "30X", "35X", "40X", "45X", "50X", "75X","100X"))
+```
+
+**********************************************************************************************************************************
+
+```{r}
+clean <- unite(clean, group_name, c(paired_ends, primer), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_V3" = "PE150 V3 Primers",
+                             "PE150_V4" = "PE150 V4 Primers",
+                             "PE250_V3" = "PE250 V3 Primers",
+                             "PE250_V4" = "PE250 V4 Primers",
+                             "PE300_V3" = "PE300 V3 Primers",
+                             "PE300_V4" = "PE300 V4 Primers")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+
+```{r, fig.width=8}
+#mke plot
+p1 <- clean %>% ggplot() +
+  geom_point(aes(x = coverage, y = total_errors, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = total_errors, color = paired_ends, linetype = primer, 
+                group = interaction(group_name)), size =1) +
+  facet_wrap(~errors) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "ARTIC Primer") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("B: BWA Assembly + Delta + Amplicons")
+
+p1 <- p1 + theme(axis.text.x = element_text(angle = 90, hjust =1),
+           legend.position = "bottom")
+
+p1
+```
+
+```{r}
+#raw <- read_excel("./raw_data/Delta_Illumina_amp_IRMA_clean_09.15.2021.xlsx")
+raw <- readRDS("./raw_data/delta_clean_IRMA_amp_09.28.2021.rds")
+#tag total rows in the dataset
+total_rows <- nrow(raw)
+```
+
+```{r}
+#beautify columns
+clean_the_cols <- function(df) {
+  
+  temp <- str_split_fixed(df$sample, "_", 6) %>% 
+  as_tibble() %>%
+  mutate(tag = 1:total_rows) %>% 
+  rename(variant = "V1",
+         primer = "V2",
+         paired_ends = "V3",
+         coverage = "V4",
+         errors = "V5",
+         replicate = "V6")
+
+make_this <- df %>% mutate(tag = 1:total_rows) %>%
+  left_join(temp) %>%
+  select(-c(sample, tag))
+
+make_this <- make_this[,c(5:10, 1:4)]
+
+return(make_this)
+}
+
+#count the sequencing errors
+count_errors <- function(df){
+  make_this <- df %>% mutate(total_snp_errors = snp_incorrect,
+                      total_indel_errors = indel_incorrect,
+                      total_errors = total_snp_errors) %>%            # for not total errors = only SNP errors
+  select(-replicate) %>%
+  group_by(variant, primer, paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+  return(make_this)
+}
+```
+
+```{r}
+#clean the data
+clean <- clean_the_cols(raw) %>%
+  count_errors()
+
+clean$coverage <- factor(clean$coverage, levels = c(
+"1X", "2X", "3X", "4X", "5X", "6X", "7X", "8X", "9X", "10X", "15X", "20X", "25X", "30X", "35X", "40X", "45X", "50X", "75X","100X"))
+```
+
+**********************************************************************************************************************************
+
+```{r}
+clean <- unite(clean, group_name, c(paired_ends, primer), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_V3" = "PE150 V3 Primers",
+                             "PE150_V4" = "PE150 V4 Primers",
+                             "PE250_V3" = "PE250 V3 Primers",
+                             "PE250_V4" = "PE250 V4 Primers",
+                             "PE300_V3" = "PE300 V3 Primers",
+                             "PE300_V4" = "PE300 V4 Primers")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+
+```{r, fig.width=8}
+#mke plot
+p2 <- clean %>% ggplot() +
+  geom_point(aes(x = coverage, y = total_errors, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = total_errors, color = paired_ends, linetype = primer, 
+                group = interaction(group_name)), size =1) +
+  facet_wrap(~errors) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "ARTIC Primer") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("C: IRMA Assembly + Delta + Amplicons")
+
+p2 <- p2 + theme(axis.text.x = element_text(angle = 90, hjust =1),
+           legend.position = "bottom")
+
+p2
+```
+
+
+
+```{r}
+#raw <- read_excel("./raw_data/Delta_Illumina_amp_IRMA_clean_09.15.2021.xlsx")
+raw <- readRDS("./raw_data/delta_clean_SPAdes_amp_09.29.2021.rds")
+#tag total rows in the dataset
+total_rows <- nrow(raw)
+```
+
+```{r}
+#beautify columns
+clean_the_cols <- function(df) {
+  
+  temp <- str_split_fixed(df$sample, "_", 6) %>% 
+  as_tibble() %>%
+  mutate(tag = 1:total_rows) %>% 
+  rename(variant = "V1",
+         primer = "V2",
+         paired_ends = "V3",
+         coverage = "V4",
+         errors = "V5",
+         replicate = "V6")
+
+make_this <- df %>% mutate(tag = 1:total_rows) %>%
+  left_join(temp) %>%
+  select(-c(sample, tag))
+
+make_this <- make_this[,c(5:10, 1:4)]
+
+return(make_this)
+}
+
+#count the sequencing errors
+count_errors <- function(df){
+  make_this <- df %>% mutate(total_snp_errors = snp_incorrect,
+                      total_indel_errors = indel_incorrect,
+                      total_errors = total_snp_errors) %>%            # for not total errors = only SNP errors
+  select(-replicate) %>%
+  group_by(variant, primer, paired_ends, coverage, errors) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup()
+  return(make_this)
+}
+```
+
+```{r}
+#clean the data
+clean <- clean_the_cols(raw) %>%
+  count_errors()
+
+clean$coverage <- factor(clean$coverage, levels = c(
+"1X", "2X", "3X", "4X", "5X", "6X", "7X", "8X", "9X", "10X", "15X", "20X", "25X", "30X", "35X", "40X", "45X", "50X", "75X","100X"))
+```
+
+**********************************************************************************************************************************
+
+```{r}
+clean <- unite(clean, group_name, c(paired_ends, primer), remove=FALSE) %>%
+  mutate(group_name = recode(group_name,
+                             "PE150_V3" = "PE150 V3 Primers",
+                             "PE150_V4" = "PE150 V4 Primers",
+                             "PE250_V3" = "PE250 V3 Primers",
+                             "PE250_V4" = "PE250 V4 Primers",
+                             "PE300_V3" = "PE300 V3 Primers",
+                             "PE300_V4" = "PE300 V4 Primers")) %>%
+  mutate(errors = recode(errors,
+                         "IE" = "Illumina Errors",
+                         "P" = "Perfect"))
+```
+
+
+```{r, fig.width=8}
+#mke plot
+p3 <- clean %>% ggplot() +
+  geom_point(aes(x = coverage, y = total_errors, color = paired_ends), size = 2) +
+  geom_line(aes(x = coverage, y = total_errors, color = paired_ends, linetype = primer, 
+                group = interaction(group_name)), size =1) +
+  facet_wrap(~errors) +
+  theme_bw() +
+  labs(color = "Read Parameters", linetype = "ARTIC Primer") +
+  xlab("Coverage") +
+  ylab("Total Errors") +
+  ggtitle("A: SPAdes Assembly + Delta + Amplicons")
+
+p3 <- p3 + theme(axis.text.x = element_text(angle = 90, hjust =1),
+           legend.position = "bottom")
+
+p3
+```
+
+
+```{r, fig.width=10}
+make_this <- ggarrange(p3, p1, p2, common.legend = TRUE)
+
+#library(ggpubr)
+ggsave(make_this, file = "./figure_2.png")
+
+```
+
+
+
+
+
+
+

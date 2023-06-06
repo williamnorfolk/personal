@@ -1,0 +1,722 @@
+---
+title: "endo_pval_add_names_nonpolar"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+library(fuzzyjoin)
+library(data.table)
+library(writexl)
+```
+
+
+
+************************************************** NON POLARRR********************************************
+
+
+```{r}
+endo_nonpolar <- read.csv("./high_res_nonpolar_endo.csv")
+```
+
+
+```{r}
+pivot_nonpolar <- endo_nonpolar %>% 
+  pivot_longer(cols = -retention_time, names_to = "names", values_to = "values") %>%
+  mutate(tag = 1:69708)
+```
+
+```{r}
+#split the names
+#use \\ to escape the \ 
+split_the_names1 <- function(df){
+split_names <- str_split_fixed(df$names, "\\_", 4)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:69708) %>% #total counts
+  rename(junk = "V1",
+         iron = "V2",
+         starvation = "V3",
+         replicate = "V4")
+
+add_names <- left_join(df, split_names)
+
+return(add_names)
+
+}
+```
+
+```{r}
+clean_nonpolar <- split_the_names1(pivot_nonpolar) %>%
+  select(-c(junk, tag, names)) %>%
+  mutate(full_name = paste0(starvation, "_", iron))
+```
+
+
+```{r}
+#split the names then rejoin
+
+
+non_starved_iron_nonpolar <- clean_nonpolar %>% subset(full_name == "NS_Y" | full_name == "NS_N") %>%
+  select(-c(iron, starvation)) 
+
+#remove inf values
+non_starved_iron_nonpolar_find <- non_starved_iron_nonpolar %>% 
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  mutate(max_check = max(values),
+         min_check = min(values),
+         check_check = max_check - min_check) %>%
+  ungroup() %>%
+  select(retention_time, check_check, full_name) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>% ungroup() %>%
+  select(-full_name) %>%
+  group_by(retention_time) %>%
+  summarize_if(is.numeric, sum) %>% ungroup() %>%
+  mutate(find = case_when(
+    .$check_check == 0 ~ "bad",
+    TRUE ~ "good")) %>% select(-check_check)
+
+non_starved_iron_nonpolar <- non_starved_iron_nonpolar %>% left_join(non_starved_iron_nonpolar_find) %>%
+  group_by(retention_time)
+
+#remove inf values
+non_starved_iron_nonpolar <- non_starved_iron_nonpolar[!(non_starved_iron_nonpolar$find == "bad"), ]
+ 
+#find the p-value for each retention time
+get_pval1 <- non_starved_iron_nonpolar %>% mutate(p_val = t.test(values[str_detect(full_name, "NS_Y")],
+                           values[str_detect(full_name, "NS_N")])$p.value) %>%
+  ungroup() %>%
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(retention_time) %>%
+  mutate(max_val = max(values),
+         min_val = min(values)) %>%
+  ungroup()
+
+try1 <- get_pval1 %>% pivot_wider(names_from = full_name, values_from = values) %>%
+  mutate(ns_iron_fold = NS_Y / NS_N) %>%
+  mutate(neg_log10_pval = -log10(p_val)) %>%
+  mutate(log2_fold_change = log2(ns_iron_fold)) %>%
+  mutate(up_or_down = case_when(
+    .$NS_Y > NS_N ~ "Up",
+    .$NS_Y < NS_N ~ "Down",
+    TRUE ~ "Equal")) %>%
+  mutate(color_code = case_when(
+    .$up_or_down == "Up" & .$p_val < 0.05 ~ "Up Regulated",
+    .$up_or_down == "Down" & .$p_val < 0.05 ~ "Down Regulated",
+    TRUE ~ "Non-Significant"))
+
+colors <- c("blue", "grey", "red")
+shape_key <- c("circle", "cross")
+
+find_sigs <- try1 %>% subset(log2_fold_change > 4 | log2_fold_change < -3)
+
+use1 <- find_sigs %>% select(retention_time) %>%
+  mutate(taggize = "these")
+
+try1 <- try1 %>% left_join(use1) %>%
+  mutate(shape_code = case_when(
+    .$taggize == "these" ~ "Very Sig",
+    TRUE ~ "none"))
+
+###############################################END POLAR NOT STARVED IRON########################################
+```
+
+```{r}
+#********************************************JUST POLAR STARVED IRON#########################################
+#split the names then rejoin
+
+starved_iron_nonpolar <- clean_nonpolar %>% subset(full_name == "S_Y" | full_name == "S_N") %>%
+  select(-c(iron, starvation))
+
+#remove inf values
+starved_iron_nonpolar_find <- starved_iron_nonpolar %>% 
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  mutate(max_check = max(values),
+         min_check = min(values),
+         check_check = max_check - min_check) %>%
+  ungroup() %>%
+  select(retention_time, check_check, full_name) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>% ungroup() %>%
+  select(-full_name) %>%
+  group_by(retention_time) %>%
+  summarize_if(is.numeric, sum) %>% ungroup() %>%
+  mutate(find = case_when(
+    .$check_check == 0 ~ "bad",
+    TRUE ~ "good")) %>% select(-check_check)
+
+starved_iron_nonpolar <- starved_iron_nonpolar %>% left_join(starved_iron_nonpolar_find) %>%
+  group_by(retention_time)
+
+#remove inf values
+starved_iron_nonpolar <- starved_iron_nonpolar[!(starved_iron_nonpolar$find == "bad"), ]
+
+#find the p-value for each retention time
+get_pval2 <- starved_iron_nonpolar %>% mutate(p_val = t.test(values[str_detect(full_name, "S_Y")],
+                           values[str_detect(full_name, "S_N")])$p.value) %>%
+  ungroup() %>%
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(retention_time) %>%
+  mutate(max_val = max(values),
+         min_val = min(values)) %>%
+  ungroup()
+
+try2 <- get_pval2 %>% pivot_wider(names_from = full_name, values_from = values) %>%
+  mutate(s_iron_fold = S_Y / S_N) %>%
+  mutate(neg_log10_pval = -log10(p_val)) %>%
+  mutate(log2_fold_change = log2(s_iron_fold)) %>%
+  mutate(up_or_down = case_when(
+    .$S_Y > S_N ~ "Up",
+    .$S_Y < S_N ~ "Down",
+    TRUE ~ "Equal")) %>%
+  mutate(color_code = case_when(
+    .$up_or_down == "Up" & .$p_val < 0.05 ~ "Up Regulated",
+    .$up_or_down == "Down" & .$p_val < 0.05 ~ "Down Regulated",
+    TRUE ~ "Non-Significant"))
+
+find_sigs2 <- try2 %>% subset(log2_fold_change > 4 | log2_fold_change < -3)
+
+use2 <- find_sigs2 %>% select(retention_time) %>%
+  mutate(taggize = "these")
+
+try2 <- try2 %>% left_join(use2) %>%
+  mutate(shape_code = case_when(
+    .$taggize == "these" ~ "Very Sig",
+    TRUE ~ "none"))
+
+###############################################END POLAR STARVED IRON########################################
+```
+
+
+```{r}
+#********************************************JUST POLAR Fe+ STARVATION TEST#######################################
+#split the names then rejoin
+
+
+fe_y_nonpolar <- clean_nonpolar %>% subset(full_name == "S_Y" | full_name == "NS_Y")%>%
+  mutate(full_name = recode(full_name,
+                            "S_Y" = "SS_Y")) %>%
+  select(-c(iron, starvation)) 
+
+#doozy here
+fe_y_nonpolar_find <- fe_y_nonpolar %>% 
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  mutate(max_check = max(values),
+         min_check = min(values),
+         check_check = max_check - min_check) %>%
+  ungroup() %>%
+  select(retention_time, check_check, full_name) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>% ungroup() %>%
+  select(-full_name) %>%
+  group_by(retention_time) %>%
+  summarize_if(is.numeric, sum) %>% ungroup() %>%
+  mutate(find = case_when(
+    .$check_check == 0 ~ "bad",
+    TRUE ~ "good")) %>% select(-check_check)
+
+fe_y_nonpolar <- fe_y_nonpolar %>% left_join(fe_y_nonpolar_find) %>%
+  group_by(retention_time)
+
+
+#remove inf values
+fe_y_nonpolar <- fe_y_nonpolar[!(fe_y_nonpolar$find == "bad"), ]
+ 
+#find the p-value for each retention time
+get_pval3 <- fe_y_nonpolar %>% mutate(p_val = t.test(values[str_detect(full_name, "NS_Y")],
+                           values[str_detect(full_name, "SS_Y")])$p.value) %>%
+  ungroup() %>%
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(retention_time) %>%
+  mutate(max_val = max(values),
+         min_val = min(values)) %>%
+  ungroup()%>%
+  mutate(full_name = recode(full_name,
+                            "SS_Y" = "S_Y"))
+
+try3 <- get_pval3 %>% pivot_wider(names_from = full_name, values_from = values) %>%
+  mutate(fe_y_starve_fold = NS_Y / S_Y) %>%
+  mutate(neg_log10_pval = -log10(p_val)) %>%
+  mutate(log2_fold_change = log2(fe_y_starve_fold)) %>%
+  mutate(up_or_down = case_when(
+    .$NS_Y > S_Y ~ "Up",
+    .$NS_Y < S_Y ~ "Down",
+    TRUE ~ "Equal")) %>%
+  mutate(color_code = case_when(
+    .$up_or_down == "Up" & .$p_val < 0.05 ~ "Up Regulated",
+    .$up_or_down == "Down" & .$p_val < 0.05 ~ "Down Regulated",
+    TRUE ~ "Non-Significant"))
+
+colors <- c("blue", "grey", "red")
+shape_key <- c("circle", "cross")
+
+find_sigs3 <- try3 %>% subset(log2_fold_change > 4 | log2_fold_change < -3)
+
+use3 <- find_sigs3 %>% select(retention_time) %>%
+  mutate(taggize = "these")
+
+try3 <- try3 %>% left_join(use3) %>%
+  mutate(shape_code = case_when(
+    .$taggize == "these" ~ "Very Sig",
+    TRUE ~ "none"))
+
+###############################################END POLAR Fe+ STARVATION TEST#####################################
+```
+```{r}
+#********************************************JUST POLAR Fe- STARVATION TEST#######################################
+#split the names then rejoin
+
+
+fe_n_nonpolar <- clean_nonpolar %>% subset(full_name == "S_N" | full_name == "NS_N") %>%
+  mutate(full_name = recode(full_name,
+                            "S_N" = "SS_N")) %>%
+  select(-c(iron, starvation)) 
+
+fe_n_nonpolar_find <- fe_n_nonpolar %>% 
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  mutate(max_check = max(values),
+         min_check = min(values),
+         check_check = max_check - min_check) %>%
+  ungroup() %>%
+  select(retention_time, check_check, full_name) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>% ungroup() %>%
+  select(-full_name) %>%
+  group_by(retention_time) %>%
+  summarize_if(is.numeric, sum) %>% ungroup() %>%
+  mutate(find = case_when(
+    .$check_check == 0 ~ "bad",
+    TRUE ~ "good")) %>% select(-check_check)
+
+fe_n_nonpolar <- fe_n_nonpolar %>% left_join(fe_n_nonpolar_find) %>%
+  group_by(retention_time)
+
+
+#remove inf values
+fe_n_nonpolar <- fe_n_nonpolar[!(fe_n_nonpolar$find == "bad"), ]
+ 
+#find the p-value for each retention time
+get_pval4 <- fe_n_nonpolar %>% mutate(p_val = t.test(values[str_detect(full_name, "NS_N")],
+                           values[str_detect(full_name, "SS_N")])$p.value) %>%
+  ungroup() %>%
+  select(-replicate) %>%
+  group_by(retention_time, full_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(retention_time) %>%
+  mutate(max_val = max(values),
+         min_val = min(values)) %>%
+  ungroup()%>%
+  mutate(full_name = recode(full_name,
+                            "SS_N" = "S_N"))
+
+try4 <- get_pval4 %>% pivot_wider(names_from = full_name, values_from = values) %>%
+  mutate(fe_n_starve_fold = NS_N / S_N) %>%
+  mutate(neg_log10_pval = -log10(p_val)) %>%
+  mutate(log2_fold_change = log2(fe_n_starve_fold)) %>%
+  mutate(up_or_down = case_when(
+    .$NS_N > S_N ~ "Up",
+    .$NS_N < S_N ~ "Down",
+    TRUE ~ "Equal")) %>%
+  mutate(color_code = case_when(
+    .$up_or_down == "Up" & .$p_val < 0.05 ~ "Up Regulated",
+    .$up_or_down == "Down" & .$p_val < 0.05 ~ "Down Regulated",
+    TRUE ~ "Non-Significant"))
+
+colors <- c("blue", "grey", "red")
+sad_colors <- c("grey")
+
+shape_key <- c("circle", "cross")
+
+find_sigs4 <- try4 %>% subset(log2_fold_change > 4 | log2_fold_change < -3)
+
+use4 <- find_sigs4 %>% select(retention_time) %>%
+  mutate(taggize = "these")
+
+try4 <- try4 %>% left_join(use4) %>%
+  mutate(shape_code = case_when(
+    .$taggize == "these" ~ "Very Sig",
+    TRUE ~ "none"))
+
+###############################################END PPOLAR Fe- STARVATION TEST#####################################
+```
+```{r}
+real_names_nonpolar <- read_excel("./nonpolar_master_names_12_16_22.xlsx") %>%
+  select(-c(...1, ...6, ...7, ...8, p_val)) %>%
+  rename(meta_name = ...5)
+```
+
+
+
+```{r fig.width=9}
+iron_compare_ns <- try1 %>% 
+  select(c(retention_time, p_val, NS_Y, NS_N, up_or_down, color_code)) %>%
+  mutate(iron_diff = NS_Y - NS_N) %>% 
+  subset(p_val <= 0.05) %>%
+  select(retention_time, color_code, p_val, iron_diff, up_or_down) %>%
+  left_join(clean_nonpolar) %>% 
+  subset(full_name == "NS_Y" | full_name == "NS_N") %>%
+  mutate(retention_time = round(retention_time, 4)) %>%
+  mutate(iron = recode(iron,
+                                 "Y" = "Iron Replete",
+                                 "N" = "Iron Deficient"))
+
+options(digits = 7)
+iron_compare_ns_names <- iron_compare_ns %>% left_join(real_names_nonpolar) %>%
+  select(-replicate) %>%
+  group_by(retention_time, color_code, up_or_down, iron, starvation, full_name, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(meta_name) %>%
+  mutate(strongest = min(p_val)) %>%
+  ungroup() %>%
+  mutate(keepers = case_when(
+    .$p_val == .$strongest ~ "keep",
+    TRUE ~ "drop")) 
+
+
+ns_iron_names <- iron_compare_ns_names %>%
+  subset(keepers == "keep") %>%
+  select(c(retention_time, keepers, meta_name))
+
+plot_iron_ns_names <- iron_compare_ns %>% left_join(ns_iron_names) %>%
+  subset(keepers == "keep") %>%
+  mutate(up_or_down = recode(up_or_down,
+                             "Up" = "Up Regulated",
+                             "Down" = "Down Regulated"))
+
+plot_iron_ns_names <- plot_iron_ns_names[!(is.na(plot_iron_ns_names$meta_name)), ]
+plot_iron_ns_names <- plot_iron_ns_names[!(plot_iron_ns_names$meta_name %like% "2-deoxy-D-ribose"), ]
+
+hhh <- plot_iron_ns_names %>% mutate(up_or_down = recode(up_or_down,
+                                                         "Down Regulated" = "Non-Starved Iron Deficient (NSFe-)",
+                                                         "Up Regulated" = "Non-Starved Iron Replete (NSFe+)"))
+
+hhh %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, -abs(iron_diff)), y = log10(values), 
+                      fill = iron, color = iron)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  scale_color_discrete(guide = "none")+
+  scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+ # ggtitle("Nonpolar Non-Starved Iron Comparison (NSFe+/NSFe-)")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 10.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12)) 
+```
+
+```{r}
+saveRDS(plot_iron_ns_names, "./pval_metabolite_abundance/iron_ns_nonpolar.rds")
+```
+
+
+
+```{r}
+# 
+# this <- plot_iron_ns_names %>% select(up_or_down, meta_name) %>%
+#   mutate(tag = 1) %>%
+#   group_by(meta_name, up_or_down) %>%
+#   summarize_if(is.numeric, sum) %>%
+#   ungroup() %>% arrange(desc(up_or_down))
+# 
+# 
+#  write.csv(this, "./this.csv")
+```
+
+
+
+
+
+
+```{r, fig.width=9}
+iron_compare_s <- try2 %>% 
+  select(c(retention_time, p_val, S_Y, S_N, up_or_down, color_code)) %>%
+  mutate(iron_diff = S_Y - S_N) %>% 
+  subset(p_val <= 0.05) %>%
+  select(retention_time, color_code, p_val, iron_diff, up_or_down) %>%
+  left_join(clean_nonpolar) %>% 
+  subset(full_name == "S_Y" | full_name == "S_N") %>%
+  mutate(retention_time = round(retention_time, 4)) %>%
+  mutate(iron = recode(iron,
+                                 "Y" = "Iron Replete",
+                                 "N" = "Iron Deficient"))
+
+options(digits = 7)
+iron_compare_s_names <- iron_compare_s %>% left_join(real_names_nonpolar) %>%
+  select(-replicate) %>%
+  group_by(retention_time, color_code, up_or_down, iron, starvation, full_name, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(meta_name) %>%
+  mutate(strongest = min(p_val)) %>%
+  ungroup() %>%
+  mutate(keepers = case_when(
+    .$p_val == .$strongest ~ "keep",
+    TRUE ~ "drop")) 
+
+
+s_iron_names <- iron_compare_s_names %>%
+  subset(keepers == "keep") %>%
+  select(c(retention_time, keepers, meta_name))
+
+plot_iron_s_names <- iron_compare_s %>% left_join(s_iron_names) %>%
+  subset(keepers == "keep") %>%
+  mutate(up_or_down = recode(up_or_down,
+                             "Up" = "Up Regulated",
+                             "Down" = "Down Regulated"))
+
+plot_iron_s_names <- plot_iron_s_names[!(is.na(plot_iron_s_names$meta_name)), ]
+plot_iron_s_names <- plot_iron_s_names[!(plot_iron_s_names$meta_name %like% "2-deoxy-D-ribose"), ]
+
+yyy <- plot_iron_s_names %>% mutate(up_or_down = recode(up_or_down,
+                                                         "Down Regulated" = "Starved Iron Deficient (SFe-)",
+                                                         "Up Regulated" = "Starved Iron Replete (SFe+)"))
+
+
+yyy %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, -abs(iron_diff)), y = log10(values), 
+                      fill = iron, color = iron)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  scale_color_discrete(guide = "none")+
+  #scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+ # ggtitle("Nonpolar Non-Starved Iron Comparison (NSFe+/NSFe-)")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 10.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12)) 
+```
+```{r}
+saveRDS(plot_iron_s_names, "./pval_metabolite_abundance/iron_s_nonpolar.rds")
+
+```
+
+
+
+```{r}
+# 
+# this <- plot_iron_s_names %>% select(up_or_down, meta_name) %>%
+#   mutate(tag = 1) %>%
+#   group_by(meta_name, up_or_down) %>%
+#   summarize_if(is.numeric, sum) %>%
+#   ungroup() %>% arrange(desc(up_or_down))
+# 
+# 
+#  write.csv(this, "./this.csv")
+```
+
+
+
+```{r, fig.width=9}
+starvation_compare_y <- try3 %>% 
+  select(c(retention_time, p_val, S_Y, NS_Y, up_or_down, color_code)) %>%
+  mutate(starve_diff = NS_Y - S_Y) %>%
+  subset(p_val <= 0.05) %>%
+  select(retention_time, color_code, p_val, starve_diff, up_or_down) %>% 
+  left_join(clean_nonpolar) %>% 
+  subset(full_name == "S_Y" | full_name == "NS_Y") %>%
+  mutate(retention_time = round(retention_time, 4)) %>%
+  mutate(starvation = recode(starvation,
+                                 "NS" = "Not Starved",
+                                 "S" = "Starved"))
+
+starvation_compare_y$starvation <- factor(starvation_compare_y$starvation, 
+                                               levels = c("Starved", "Not Starved"))
+
+options(digits = 7)
+starve_compare_y_names <- starvation_compare_y %>% left_join(real_names_nonpolar) %>%
+  select(-replicate) %>%
+  group_by(retention_time, color_code, up_or_down, iron, starvation, full_name, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(meta_name) %>%
+  mutate(strongest = min(p_val)) %>%
+  ungroup() %>%
+  mutate(keepers = case_when(
+    .$p_val == .$strongest ~ "keep",
+    TRUE ~ "drop")) 
+
+
+y_starve_names <- starve_compare_y_names %>%
+  subset(keepers == "keep") %>%
+  select(c(retention_time, keepers, meta_name))
+
+plot_y_starve_names <- starvation_compare_y %>% left_join(y_starve_names) %>%
+  subset(keepers == "keep") %>%
+  mutate(up_or_down = recode(up_or_down,
+                             "Up" = "Up Regulated",
+                             "Down" = "Down Regulated"))
+
+plot_y_starve_names <- plot_y_starve_names[!(is.na(plot_y_starve_names$meta_name)), ]
+plot_y_starve_names <- plot_y_starve_names[!(plot_y_starve_names$meta_name %like% "2-deoxy-D-ribose"), ]
+
+
+ty <- plot_y_starve_names %>% mutate(up_or_down = recode(up_or_down,
+                                                         "Down Regulated" = "Starved Iron Replete (SFe+)",
+                                                         "Up Regulated" = "Non-starved Iron Replete (NSFe+)"))
+
+ty %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, -abs(starve_diff)), y = log10(values), 
+                      fill = starvation, color = starvation)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  scale_color_discrete(guide = "none")+
+  #scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+ # ggtitle("Nonpolar Non-Starved Iron Comparison (NSFe+/NSFe-)")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 10.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12)) 
+```
+
+```{r}
+saveRDS(plot_y_starve_names, "./pval_metabolite_abundance/starve_y_nonpolar.rds")
+
+```
+
+
+```{r}
+# 
+# this <- plot_y_starve_names %>% select(up_or_down, meta_name) %>%
+#   mutate(tag = 1) %>%
+#   group_by(meta_name, up_or_down) %>%
+#   summarize_if(is.numeric, sum) %>%
+#   ungroup() %>% arrange(desc(up_or_down))
+# 
+# 
+#  write.csv(this, "./this.csv")
+```
+
+```{r, fig.width=9}
+#Starvation Fe-
+starvation_compare_n <- try4 %>% 
+  select(c(retention_time, p_val, S_N, NS_N, up_or_down, color_code)) %>%
+  mutate(starve_diff = NS_N - S_N) %>%
+  subset(p_val <= 0.05) %>%
+  select(retention_time, color_code, p_val, starve_diff, up_or_down) %>% left_join(clean_nonpolar) %>% 
+  subset(full_name == "S_N" | full_name == "NS_N") %>%
+  mutate(retention_time = round(retention_time, 4)) %>%
+  mutate(starvation = recode(starvation,
+                                 "NS" = "Not Starved",
+                                 "S" = "Starved"))
+
+starvation_compare_n$starvation <- factor(starvation_compare_n$starvation, 
+                                               levels = c("Starved", "Not Starved"))
+
+options(digits = 7)
+starve_compare_n_names <- starvation_compare_n %>% left_join(real_names_nonpolar) %>%
+  select(-replicate) %>%
+  group_by(retention_time, color_code, up_or_down, iron, starvation, full_name, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  group_by(meta_name) %>%
+  mutate(strongest = min(p_val)) %>%
+  ungroup() %>%
+  mutate(keepers = case_when(
+    .$p_val == .$strongest ~ "keep",
+    TRUE ~ "drop")) 
+
+
+n_starve_names <- starve_compare_n_names %>%
+  subset(keepers == "keep") %>%
+  select(c(retention_time, keepers, meta_name))
+
+plot_n_starve_names <- starvation_compare_n %>% left_join(n_starve_names) %>%
+  subset(keepers == "keep") %>%
+  mutate(up_or_down = recode(up_or_down,
+                             "Up" = "Up Regulated",
+                             "Down" = "Down Regulated"))
+
+plot_n_starve_names <- plot_n_starve_names[!(is.na(plot_n_starve_names$meta_name)), ]
+plot_n_starve_names <- plot_n_starve_names[!(plot_n_starve_names$meta_name %like% "2-deoxy-D-ribose"), ]
+
+
+ssss <- plot_n_starve_names %>% mutate(up_or_down = recode(up_or_down,
+                                                         "Down Regulated" = "Starved Iron Deficient (SFe-)",
+                                                         "Up Regulated" = "Non-starved Iron Deficient (NSFe-)"))
+
+ssss %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, -abs(starve_diff)), y = log10(values), 
+                      fill = starvation, color = starvation)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  scale_color_discrete(guide = "none")+
+  #scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+ # ggtitle("Nonpolar Non-Starved Iron Comparison (NSFe+/NSFe-)")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 10.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12)) 
+```
+
+```{r}
+saveRDS(plot_n_starve_names, "./pval_metabolite_abundance/starve_n_nonpolar.rds")
+
+```
+
+
+```{r}
+# 
+# this <- plot_n_starve_names %>% select(up_or_down, meta_name) %>%
+#   mutate(tag = 1) %>%
+#   group_by(meta_name, up_or_down) %>%
+#   summarize_if(is.numeric, sum) %>%
+#   ungroup() %>% arrange(desc(up_or_down))
+# 
+# 
+#  write.csv(this, "./this.csv")
+```
+
+```{r}
+
+ns_ave <- plot_iron_ns_names %>% select(p_val, up_or_down, full_name, meta_name, values) %>%
+  group_by(full_name, up_or_down, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+s_ave <- plot_iron_s_names %>% select(p_val, up_or_down, full_name, meta_name, values) %>%
+  group_by(full_name, up_or_down, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+y_starve_ave <- plot_y_starve_names %>% select(p_val, up_or_down, full_name, meta_name, values) %>%
+  group_by(full_name, up_or_down, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+n_starve_ave <- plot_n_starve_names %>% select(p_val, up_or_down, full_name, meta_name, values) %>%
+  group_by(full_name, up_or_down, meta_name) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+```
+
+

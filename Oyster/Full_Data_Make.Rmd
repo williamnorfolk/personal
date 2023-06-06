@@ -1,0 +1,159 @@
+---
+title: "Full_Data_Make"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+
+```{r}
+#sample1
+vp_1c <- read_csv("./6_15_22/clean_controls_vp_6_15_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vp_1u <- read_csv("./6_15_22/clean_unknown_vp_6_15_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vp_full1 <- rbind(vp_1c, vp_1u) %>%
+  mutate(date = as.Date("2022-06-15")) %>%
+  mutate(target = "Vp")
+  
+vv_1c <- read_csv("./6_15_22/clean_controls_vv_6_15_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vv_1u <- read_csv("./6_15_22/clean_unknown_vv_6_15_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vv_full1 <- rbind(vv_1c, vv_1u) %>%
+  mutate(date = as.Date("2022-06-15")) %>%
+  mutate(target = "Vv")
+
+sample1 <- rbind(vp_full1, vv_full1)
+
+#sample2
+
+vp_2c <- read_csv("./6_30_22/clean_controls_vp_6_30_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vp_2u <- read_csv("./6_30_22/clean_unknown_vp_6_30_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vp_full2 <- rbind(vp_2c, vp_2u) %>%
+  mutate(date = as.Date("2022-06-29")) %>%
+  mutate(target = "Vp")
+  
+vv_2c <- read_csv("./6_30_22/clean_controls_vv_6_30_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vv_2u <- read_csv("./6_30_22/clean_unknown_vv_6_30_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vv_full2 <- rbind(vv_2c, vv_2u) %>%
+  mutate(date = as.Date("2022-06-29")) %>%
+  mutate(target = "Vv")
+
+sample2 <- rbind(vp_full2, vv_full2)
+
+#sample3
+
+vp_3c <- read_csv("./7_14_22/clean_controls_vp_7_14_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vp_3u <- read_csv("./7_14_22/clean_unknown_vp_7_14_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vp_full3 <- rbind(vp_3c, vp_3u) %>%
+  mutate(date = as.Date("2022-07-13")) %>%
+  mutate(target = "Vp")
+  
+vv_3c <- read_csv("./7_14_22/clean_controls_vv_7_14_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vv_3u <- read_csv("./7_14_22/clean_unknown_vv_7_14_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vv_full3 <- rbind(vv_3c, vv_3u) %>%
+  mutate(date = as.Date("2022-07-13")) %>%
+  mutate(target = "Vv")
+
+sample3 <- rbind(vp_full3, vv_full3)
+
+#sample4
+vp_4c <- read_csv("./7_27_22/clean_controls_vp_7_27_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vp_4u <- read_csv("./7_27_22/clean_unknown_vp_7_27_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vp_full4 <- rbind(vp_4c, vp_4u) %>%
+  mutate(date = as.Date("2022-07-27")) %>%
+  mutate(target = "Vp")
+  
+vv_4c <- read_csv("./7_27_22/clean_controls_vv_7_27_22.csv") %>%
+  select(-c(...1, well, replicate)) %>% 
+  mutate(treatment = content)
+
+vv_4u <- read_csv("./7_27_22/clean_unknown_vv_7_27_22.csv") %>%
+  select(-c(...1, ymax, ymin))
+
+vv_full4 <- rbind(vv_4c, vv_4u) %>%
+  mutate(date = as.Date("2022-07-27")) %>%
+  mutate(target = "Vv")
+
+sample4 <- rbind(vp_full4, vv_full4)
+
+```
+
+```{r}
+all_raw <- rbind(sample1, sample2, sample3, sample4) %>%
+  select(-sq) %>%
+  mutate(pcr_target = case_when(
+    .$fluor == "Cy5" ~ "IAC",
+    .$fluor == "HEX" & .$target == "Vp" ~ "tlh",
+    .$fluor == "HEX" & .$target == "Vv" ~ "vvh",
+    TRUE ~ "error"))
+```
+
+
+
+```{r}
+unkn_only <- all_raw %>% subset(content == "Unkn") %>%
+  mutate(pretty_name = paste0(container, " ", treatment))
+
+unkn_only %>% ggplot() +
+  geom_boxplot(aes(x = as.factor(date), y = cq, fill = pretty_name))+
+  facet_wrap(~target)
+```
+
+```{r}
+vvh_only <- unkn_only %>% subset(target == "Vv")
+tlh_only <- unkn_only %>% subset(target == "Vp")
+
+z<- tlh_only %>% ggplot() +
+  geom_histogram(aes(x = cq))
+
+z
+
+
+library(plotly)
+ggplotly(z)
+```
+
+
+
+```{r}
+write_csv(all_raw, "./all_raw_data_oyster_2022.csv")
+```
+
+

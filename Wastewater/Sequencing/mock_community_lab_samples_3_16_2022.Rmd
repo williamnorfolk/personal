@@ -1,0 +1,453 @@
+---
+title: "mock_community_lab_samples_3_16_2022"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggforce)
+library(ggthemes)
+```
+
+```{r}
+master_meta <- read_tsv("../Kalisto/master_metadata_1_12_22.tsv")
+
+```
+
+```{r, include=FALSE}
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-14)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+mash_data$est_counts <- as.numeric(as.character(mash_data$est_counts))
+mash_data$tpm <- as.numeric(as.character(mash_data$tpm))
+
+#mash_data <- mash_data %>% mutate(tag = 1:10400)
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+filenames_midnight <- list.files("./raw_data/Midnight_3_16_22", pattern="*tsv", full.names=TRUE)
+filenames_varskip <- list.files("./raw_data/Varskip_3_16_22", pattern="*tsv", full.names=TRUE)
+filenames_v4 <- list.files("./raw_data/V4_3_16_22", pattern="*tsv", full.names=TRUE)
+
+gsub_midnight <- "^.{0,28}"
+gsub_varskip <- "^.{0,27}"
+gsub_v4 <- "^.{0,22}"
+
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_midnight <- mash_data(filenames_midnight, gsub_midnight) %>%
+  mutate(primer = "Midnight") 
+
+mash_varskip <- mash_data(filenames_varskip, gsub_varskip) %>%
+  mutate(primer = "Varskip")
+
+mash_v4 <- mash_data(filenames_v4, gsub_v4) %>%
+  mutate(primer = "V4")
+
+mash_it_all <- rbind(mash_midnight, mash_varskip, mash_v4) %>%
+  mutate(tag = 1:3900)
+```
+
+
+```{r}
+#split the names
+#use \\ to escape the \ 
+split_the_names <- function(df){
+split_names <- str_split_fixed(df$file, "\\-", 3)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:3900) %>% #total counts
+  rename(source = "V1",
+         amp = "V2",
+         number = "V3")
+
+add_names <- left_join(df, split_names)
+
+return(add_names)
+
+}
+```
+
+```{r}
+#split the names then rejoin
+mix_mash <- split_the_names(mash_it_all)
+
+monster_mash_mock <- mix_mash %>%
+  select(-c(tag)) %>% 
+  rename(sample = "file") %>%
+  mutate(tag = 1:3900)
+
+```
+
+
+```{r}
+#save as RDS
+saveRDS(monster_mash_mock, "./monster_mash_mock_3_16_22.rds")
+
+monster_mash <- readRDS("./monster_mash_mock_3_16_22.rds")
+```
+
+```{r}
+#add junk to omicron to match the patterns of other variants
+monster_mash <- monster_mash %>% mutate(target_id = case_when(
+  .$target_id == "Junk/betacoronavirus/OL717063.1" ~ "junk|OL717063.1|junk",
+  .$target_id == "Junk/betacoronavirus/OL672836.1" ~ "junk|OL672836.1|junk",
+  TRUE ~ target_id))
+```
+
+```{r}
+#split the IDs
+#use \\ to escape the \ 
+
+split_ids <- str_split_fixed(monster_mash$target_id, "\\|", 3)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:3900) #total counts
+
+add_ids <- left_join(monster_mash, split_ids) %>%
+  select(-c(target_id)) %>%
+  rename(ref_id = "V1",
+         variant_id = "V2",
+         date_added = "V3") %>%
+  select(-c(ref_id, tag, date_added))
+```
+
+```{r}
+#reorder columns to prevent brain explosions
+
+add_ids <- add_ids[,c(6:10, 1:5)]
+```
+
+```{r}
+#shorten metadata for relevent info
+add_meta <- master_meta %>% select(c(gisaid_epi_isl, pangolin_lineage)) %>%
+  rename(variant_id = "gisaid_epi_isl",
+         lineage = "pangolin_lineage")
+
+ref_info <- read_excel("./mock_ref_data_3_16_22.xlsx", 1)
+
+clean <- add_ids %>% left_join(add_meta) %>%
+  left_join(ref_info)
+```
+
+
+```{r}
+stderr <- function(x) sd(x)/sqrt(length(x))
+```
+
+
+
+```{r}
+plot_clean <- clean %>% select(-c(variant_id, length, eff_length, source, amp)) %>%
+  group_by(primer, number, sample, lineage, community, dilution) %>%
+  summarise_if(is.numeric, sum) %>% #add all hits to each of the five selected variants to one lineage ping
+  ungroup() %>%
+  select(-c(number, sample, tpm)) %>%
+  group_by(primer, lineage, community, dilution) %>% #average all of the lineages pings for each sample (x5 reps)
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+```
+
+#saving incase we need all the variants tagged
+plot_clean_2 <- plot_clean %>% mutate(lineage_name = case_when( #tag the delta and wuhan variants, all other = other
+  .$lineage == "B.1.617.2" ~ "Delta",
+  .$lineage == "B" ~ "Wuhan",
+  .$lineage == "B.1.1.7" ~ "Alpha",
+  .$lineage == "B.1.351" ~ "Beta",
+  .$lineage == "P.1" ~ "Gamma",
+  .$lineage == "B.1.427" | .$lineage == "B.1.429" ~ "Epsilon",
+  .$lineage == "B.1.1.529" ~ "Omicron",
+  .$lineage == "B.1.526" ~ "Iota",
+  .$lineage == "B.1.525" ~ "Eta",
+  .$lineage == "B.1.617.1" ~ "Kappa",
+  .$lineage == "B.1.621" ~ "Mu",
+  .$lineage == "P.2" ~ "Zeta",
+  TRUE ~ "Other"))
+
+```{r}
+plot_clean_2 <- plot_clean %>% mutate(lineage_name = case_when( #tag the delta and wuhan variants, all other = other
+  .$lineage == "B.1.617.2" ~ "Delta",
+  .$lineage == "B" ~ "Wuhan",
+  .$lineage == "B.1.1.7" ~ "Alpha",
+  .$lineage == "B.1.351" ~ "Beta",
+  TRUE ~ "Other"))
+
+sum_bins <- plot_clean_2 %>% select(-c(lineage, lineage_name)) %>% #total transcript detections regardless of variant
+  group_by(primer, community, dilution) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(total_count = "est_counts")
+
+plot_final <- left_join(plot_clean_2, sum_bins)  %>%
+  mutate(lineage_perc = est_counts/total_count*100)
+
+```
+
+
+```{r}
+plot_final$lineage_name <- factor(plot_final$lineage_name, levels = c("Alpha", "Beta", "Delta", "Wuhan", "Other"))
+
+plot_final_mc_only <- plot_final %>% 
+  subset(community == "1" | community == "2" | community == "3" | community == "4" | community == "5")
+
+plot_final_controls_only <- plot_final %>% 
+  subset(community == "heat_sars_pbs" | community == "heat_sars_wastewater" | community == "twist" | community == "wastewater" | community == "pcr_water")
+```
+
+
+```{r}
+mc_1 <- plot_final_mc_only %>% subset(community == "1")%>%
+  select(-lineage) %>%
+  group_by(primer, community, dilution, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup()  #OTHER sum is wrong after this step, but % calculated above so okay
+
+mc_2 <- plot_final_mc_only %>% subset(community == "2")%>%
+  select(-lineage) %>%
+  group_by(primer, community, dilution, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+mc_3 <- plot_final_mc_only %>% subset(community == "3")%>%
+  select(-lineage) %>%
+  group_by(primer, community, dilution, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+mc_4 <- plot_final_mc_only %>% subset(community == "4")%>%
+  select(-lineage) %>%
+  group_by(primer, community, dilution, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+mc_5 <- plot_final_mc_only %>% subset(community == "5")%>%
+  select(-lineage) %>%
+  group_by(primer, community, dilution, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+
+mc_controls <- plot_final_controls_only %>% 
+  select(-lineage, -dilution) %>%
+  group_by(primer, community, lineage_name) %>%
+  summarise_if(is.numeric, sum) %>%
+  ungroup() 
+```
+
+```{r}
+saveRDS(mc_1, "./clean_RDSs/mc_1.rds")
+saveRDS(mc_2, "./clean_RDSs/mc_2.rds")
+saveRDS(mc_3, "./clean_RDSs/mc_3.rds")
+saveRDS(mc_4, "./clean_RDSs/mc_4.rds")
+saveRDS(mc_5, "./clean_RDSs/mc_5.rds")
+saveRDS(mc_controls, "./clean_RDSs/mc_controls.rds")
+
+
+```
+
+
+```{r, fig.width=10}
+mc_controls <- mc_controls %>% mutate(community = recode(community,
+                                                       "1" = "Community 1",
+                                                       "2" = "Community 2",
+                                                       "3" = "Community 3",
+                                                       "4" = "Community 4",
+                                                       "5" = "Community 5",
+                                                       "heat_sars_pbs" = "Heat SARS + PBS",
+                                                       "heat_sars_wastewater" = "Heat Sars + WW",
+                                                       "pcr_water" = "PCR Water",
+                                                       "twist" = "Twist",
+                                                       "wastewater" = "WW Background"))
+
+mc_controls$community <- factor(mc_controls$community, 
+                                levels = c("Heat SARS + PBS", "Heat Sars + WW", "Twist", "WW Background", "PCR Water"))
+
+
+
+sum_bins_controls <- sum_bins %>% subset(community == "heat_sars_pbs" | community == "heat_sars_wastewater" | community == "twist" | community == "wastewater" | community == "pcr_water") 
+  
+sum_bins_controls <- sum_bins_controls %>% select(-c(community, dilution)) %>%
+  group_by(primer) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+mc_controls_total_sum <- mc_controls %>% select(-total_count, -lineage_perc) %>%
+  left_join(sum_bins_controls) %>%
+  mutate(lineage_perc = est_counts/total_count*100)
+  
+```
+
+```{r,fig.width=10}
+p6 <- mc_controls %>% ggplot(aes(x = community, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_controls, aes(x = community, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 105, 20), limits = c(0, 105)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  ggtitle("Kalisto Hits - Percent of assigned reads per sample")+
+  labs(fill = "Lineage Name")
+
+p6
+
+p7 <- mc_controls_total_sum %>%
+  ggplot(aes(x = community, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_controls_total_sum, aes(x = community, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 105, 20), limits = c(0, 105)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  ggtitle("Kalisto Hits - Percent of total hits per primer set")+
+  labs(fill = "Lineage Name")
+
+p7
+```
+
+
+```{r, fig.width=10}
+p1 <- mc_1 %>% ggplot(aes(x = dilution, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_1, aes(x = dilution, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  theme_bw()+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  labs(fill = "Lineage Name") +
+  ggtitle("Challenge Mock Community 1: 14% Alpha, 28% Beta, 55% Delta, 3% Wuhan")
+
+p1
+
+p2 <- mc_2 %>% ggplot(aes(x = dilution, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_2, aes(x = dilution, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  theme_bw()+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  labs(fill = "Lineage Name") +
+  ggtitle("Challenge Mock Community 2: 3% Alpha, 14% Beta, 28% Delta, 55% Wuhan")
+
+p2
+
+p3 <- mc_3 %>% ggplot(aes(x = dilution, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_3, aes(x = dilution, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  theme_bw()+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  labs(fill = "Lineage Name") +
+  ggtitle("Challenge Mock Community 3: 55% Alpha, 3% Beta, 14% Delta, 28% Wuhan")
+
+p3
+
+p4 <- mc_4 %>% ggplot(aes(x = dilution, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_4, aes(x = dilution, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  theme_bw()+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  labs(fill = "Lineage Name") +
+  ggtitle("Challenge Mock Community 4: 28% Alpha, 55% Beta, 3% Delta, 14% Wuhan")
+
+p4
+
+p5 <- mc_5 %>% ggplot(aes(x = dilution, y = lineage_perc, fill = lineage_name, label = round(lineage_perc, 2))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  geom_text(data = mc_5, aes(x = dilution, y = lineage_perc, label = round(lineage_perc, 2)),
+            position = position_dodge(width = 0.9), hjust = -0.2, size = 3, angle =90) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  theme_bw()+
+  xlab("Dilution Level") +
+  ylab("Percent of Reads Assigned (%)") +
+  labs(fill = "Lineage Name") +
+  ggtitle("Challenge Mock Community 5: 25% Alpha, 25% Beta, 25% Delta, 25% Wuhan")
+
+p5
+
+```
+  
+```{r,fig.width=10}
+
+sum_bins_fig <- sum_bins %>% mutate(community = recode(community,
+                                                       "1" = "Community 1",
+                                                       "2" = "Community 2",
+                                                       "3" = "Community 3",
+                                                       "4" = "Community 4",
+                                                       "5" = "Community 5",
+                                                       "heat_sars_pbs" = "Heat SARS + PBS",
+                                                       "heat_sars_wastewater" = "Heat Sars + WW",
+                                                       "pcr_water" = "PCR Water",
+                                                       "twist" = "Twist",
+                                                       "wastewater" = "WW Background")) 
+  
+sum_bins_fig %>% ggplot() +
+  geom_bar(aes(x = community, y = total_count, fill = dilution), stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  theme_bw() +
+  xlab("Community Type") +
+  ylab("Total Kalisto Estimated Counts")+
+  labs(fill = "Dilution")+
+  theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("Total Kalisto Counts by Sample Regardless of Variant")
+
+
+
+
+sum_bins_only_samples <- sum_bins %>%
+  subset(community == "1" | community == "2" | community == "3" | community == "4" | community == "5") %>%
+  mutate(community = recode(community,
+                                     "1" = "Community 1",
+                                     "2" = "Community 2",
+                                     "3" = "Community 3",
+                                     "4" = "Community 4",
+                                     "5" = "Community 5"))
+
+sum_bins_only_samples %>% ggplot() +
+  geom_bar(aes(x = community, y = total_count, fill = dilution), stat = "identity", position = position_dodge()) +
+  facet_wrap(~primer)+
+  theme_bw() +
+  xlab("Community Type") +
+  ylab("Total Kalisto Estimated Counts")+
+  labs(fill = "Dilution")+
+  theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("Total Kalisto Counts by Sample Regardless of Variant")
+```
+  
+  
+  
+  
+  

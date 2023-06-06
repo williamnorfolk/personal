@@ -1,0 +1,386 @@
+---
+title: "redo_short_reads_10_18_22"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-22)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+genome_data <- list.files("./short_read_genome_ESBL", pattern="*tsv", full.names=TRUE)
+
+plasmid_data <- list.files("./short_read_plasmid_ESBL", pattern="*tsv", full.names=TRUE)
+
+gsub_genome <- "^.{0,25}"
+
+gsub_plasmid <- "^.{0,26}"
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_amr_genome <- mash_data(genome_data, gsub_genome) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_genome$participant_id <- gsub("-", "", mash_amr_genome$participant_id)
+
+mash_amr_plasmid <- mash_data(plasmid_data, gsub_plasmid) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_plasmid$participant_id <- gsub("-", "", mash_amr_plasmid$participant_id)
+
+```
+
+
+```{r}
+genome_clean <- mash_amr_genome %>%
+  mutate(e_tag = str_sub(participant_id, start= -2)) %>%
+  mutate(location = "genome")
+
+genome_clean$participant_id = substr(genome_clean$participant_id, 1, nchar(genome_clean$participant_id)-2)
+
+
+plasmid_clean <- mash_amr_plasmid %>%
+  mutate(e_tag = str_sub(participant_id, start= -2)) %>%
+  mutate(location = "plasmid")
+
+plasmid_clean$participant_id = substr(plasmid_clean$participant_id, 1, nchar(plasmid_clean$participant_id)-2)
+
+all_clean <- rbind(genome_clean, plasmid_clean) %>%
+  select(-c(sequence_name, element_type, element_subtype, subclass, e_tag)) %>%
+  mutate(location = recode(location,
+                           "genome" = "Genome",
+                           "plasmid" = "Plasmid"))
+
+#47 genes that are non-classed
+find_nas <- all_clean[is.na(all_clean$class), ]
+
+all_clean <- all_clean[!is.na(all_clean$class), ]
+```
+
+
+```{r}
+count_classes_total <- all_clean %>% select(-c(gene_symbol, participant_id)) %>%
+  mutate(count = 1) %>%
+  group_by(class, location) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+count_classes <- all_clean %>% select(-c(gene_symbol)) %>%
+  mutate(count = 1) %>%
+  group_by(class, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+
+count_classes %>% ggplot() +
+  geom_boxplot(aes(y = class, x = count, fill = location, color = location), 
+               position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("AMR Class Gene Hits")+
+  ylab("AMR Class")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")+
+  scale_color_discrete(guide = "none")
+
+
+count_classes_total %>% ggplot() +
+  geom_bar(aes(y = class, x = count, fill = location),stat = "identity", 
+           position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("AMR Class Gene Hits")+
+  ylab("AMR Class")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")
+```
+
+```{r}
+count_classes_total %>% ggplot() +
+  geom_bar(aes(x = location, y = count, fill = class),stat = "identity", color = "black", 
+           position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("Gene Location")+
+  ylab("AMR Class Gene Hits")+
+  theme(legend.position = "right")+
+  labs(fill = "AMR Class")
+```
+
+
+
+```{r}
+only_betalac <- all_clean %>% subset(class == "BETA-LACTAM")
+
+
+count_classes_total_betalac <- only_betalac %>% select(-c(class, participant_id)) %>%
+  mutate(count = 1) %>%
+  group_by(gene_symbol, location) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+count_classes_betalac <- only_betalac %>% select(-c(class)) %>%
+  mutate(count = 1) %>%
+  group_by(gene_symbol, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+count_classes_betalac %>% ggplot() +
+  geom_boxplot(aes(y = gene_symbol, x = count, fill = location, color = location), 
+               position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("Gene Hits")+
+  ylab("Beta-Lactam Gene")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")+
+  scale_color_discrete(guide = "none")
+
+
+count_classes_total_betalac %>% ggplot() +
+  geom_bar(aes(y = gene_symbol, x = count, fill = location),stat = "identity", 
+           position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("Gene Hits")+
+  ylab("Beta-Lactam Gene")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")
+
+```
+
+
+```{r}
+only_qui <- all_clean %>% subset(class == "QUINOLONE")
+
+
+count_classes_total_qui <- only_qui %>% select(-c(class, participant_id)) %>%
+  mutate(count = 1) %>%
+  group_by(gene_symbol, location) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+count_classes_qui <- only_qui %>% select(-c(class)) %>%
+  mutate(count = 1) %>%
+  group_by(gene_symbol, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+count_classes_qui %>% ggplot() +
+  geom_boxplot(aes(y = gene_symbol, x = count, fill = location, color = location), 
+               position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("Gene Hits")+
+  ylab("Quinolone Gene")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")+
+  scale_color_discrete(guide = "none")
+
+
+count_classes_total_qui %>% ggplot() +
+  geom_bar(aes(y = gene_symbol, x = count, fill = location),stat = "identity", 
+           position = position_dodge(preserve = "single"), drop = FALSE)+
+  theme_hc()+
+  xlab("Gene Hits")+
+  ylab("Quinolone Gene")+
+  theme(legend.position = "bottom")+
+  labs(fill = "Gene Location")
+```
+
+
+
+```{r}
+all_clean <- all_clean %>% mutate(location = recode(location,
+                                                    "Genome" = "AMR Genes in the Genome",
+                                                    "Plasmid" = "AMR Genes on Mobile Genetic Elements"))
+
+
+heat_frame_class <- all_clean %>% mutate(count = 1) %>%
+  select(-gene_symbol) %>%
+  group_by(class, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+
+heat_frame_betalac <- all_clean %>% 
+  subset(class == "BETA-LACTAM") %>%
+  mutate(count = 1) %>%
+  select(-class) %>%
+  group_by(gene_symbol, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+
+heat_frame_qui <- all_clean %>% 
+  subset(class == "QUINOLONE") %>%
+  mutate(count = 1) %>%
+  select(-class) %>%
+  group_by(gene_symbol, location, participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+
+```
+
+
+```{r}
+esbl_rename <- read_excel("../name_key_publication.xlsx", 1)
+
+esbl_rename$participant_id <- paste0("A", esbl_rename$participant_id)
+
+child_rename <- read_excel("../name_key_publication.xlsx", 2)
+
+reorder_renames <- read_excel("../name_key_publication.xlsx", 3)
+
+
+esbl_rename <- rbind(esbl_rename, child_rename) %>%
+  left_join(reorder_renames) %>%
+  group_by(participant_id, sample_number) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(rep = case_when(
+    nchar(.$participant_id) == 7 ~ "2nd",
+    TRUE ~ "1st")) %>%
+  mutate(sample_number = case_when(
+    .$rep == "2nd" ~ paste0(sample_number, "-R"),
+    TRUE ~ sample_number))
+```
+
+```{r}
+heat_frame_class <- esbl_rename %>% left_join(heat_frame_class)
+heat_frame_class$location[is.na(heat_frame_class$location)] <- "AMR Genes in the Genome"
+
+heat_frame_betalac <- esbl_rename %>% left_join(heat_frame_betalac)
+heat_frame_betalac$location[is.na(heat_frame_betalac$location)] <- "AMR Genes in the Genome"
+
+heat_frame_qui <- esbl_rename %>% left_join(heat_frame_qui)
+heat_frame_qui$location[is.na(heat_frame_qui$location)] <- "AMR Genes in the Genome"
+```
+
+
+```{r, fig.width=8, fig.height=10}
+
+#hf_class_genome <- heat_frame_class %>% subset(location == "Genome")
+#hf_class_plasmid <- heat_frame_class %>% subset(location == "Plasmid")
+
+p1 <- heat_frame_class %>% ggplot() + 
+  geom_tile(aes(y = reorder(sample_number, order_number),  x = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7) +
+  facet_grid(~location, drop = TRUE)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6))+
+  scale_x_discrete(na.translate =FALSE)+
+  scale_fill_gradientn(colors = pal)+
+  xlab("AMR Class")+
+  ylab("Sample Number")+
+  labs(fill = "Gene Hits\nper Sample")
+
+p1
+```
+```{r}
+pdf(file = "./all_classes.pdf")   # The directory you want to save the file in
+
+p1
+
+dev.off()
+```
+
+```{r, fig.width=8, fig.height=10}
+
+p2 <- heat_frame_betalac %>% ggplot() + 
+  geom_tile(aes(y = reorder(sample_number, order_number),  x = gene_symbol), fill = "green", 
+            color = "black", width =0.8, height = 0.8, size = 0.7) +
+  facet_grid(~location, drop = TRUE)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6))+
+  scale_x_discrete(na.translate =FALSE)+
+  scale_fill_gradientn(colors = pal)+
+  xlab("Beta-Lactam Gene")+
+  ylab("Sample Number")+
+  labs(fill = "Gene Hits\nper Sample")
+
+p2
+```
+```{r}
+pdf(file = "./beta_lac.pdf")   # The directory you want to save the file in
+
+p2
+
+dev.off()
+```
+
+```{r, fig.width=8, fig.height=10}
+p3 <- heat_frame_qui %>% ggplot() + 
+  geom_tile(aes(y = reorder(sample_number, order_number),  x = gene_symbol), fill = "green", 
+            color = "black", width =0.8, height = 0.8, size = 0.7) +
+  facet_grid(~location, drop = TRUE)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6))+
+  scale_x_discrete(na.translate =FALSE)+
+  scale_fill_gradientn(colors = pal)+
+  xlab("Quinolone Gene")+
+  ylab("Sample Number")+
+  labs(fill = "Gene Hits\nper Sample")
+
+p3
+```
+
+```{r}
+pdf(file = "./qui.pdf")   # The directory you want to save the file in
+
+p3
+
+dev.off()
+```
+
+```{r}
+library(writexl)
+
+all_genes_count <- all_clean %>% mutate(count = 1) %>%
+  group_by(participant_id, gene_symbol, class, location) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+
+
+write_xlsx(all_genes_count, "./all_genes_count.xlsx")
+```
+
+
+
+

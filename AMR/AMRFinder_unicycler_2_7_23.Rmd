@@ -1,0 +1,249 @@
+---
+title: "AMRfinder_unicycler_2_7_23"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-22)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+uni_files <- list.files("./AMRFinder_results_Unicycler", pattern="*tsv", full.names=TRUE)
+
+gsub_value <- "^.{0,30}"
+
+
+```
+
+
+```{r}
+#this one is long!
+mash_amr <- mash_data(uni_files, gsub_value) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass, `Contig id`)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass,
+         contig_id = `Contig id`)
+
+#mash_amr_stat$participant_id <- gsub("-", "", mash_amr_stat$participant_id)
+
+mash_amr <- mash_amr[!(is.na(mash_amr$class)), ]
+
+```
+
+
+
+```{r}
+amr_clean <- mash_amr %>% mutate(count = 1)
+
+amr_class <- amr_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+```
+
+```{r}
+esbl_rename <- read_excel("./ESBL_names_Unicycler.xlsx", 1) %>%
+  select(illu_id, new_id) %>%
+  rename(participant_id = illu_id)
+
+amr_class <- amr_class %>% left_join(esbl_rename)
+```
+
+
+```{r, fig.width=8}
+pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+#pal2 <- colorRampPalette(c("green")(100))
+
+
+p1 <- amr_class  %>% ggplot() +
+  geom_tile(aes(x = class,  y = new_id, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("AMR Class") +
+  ylab("Sample ID")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8, hjust=0.95,vjust=0.2),
+        axis.text.y = element_text(size = 8))+
+  scale_x_discrete(na.translate =FALSE)+
+  coord_flip()
+  #ggtitle("Stationary Genetic Elements-ESBLs")
+
+p1
+```
+```{r}
+pdf(file = "./Unicycler_Figs/allclass_uni_fig.pdf")   # The directory you want to save the file in
+
+p1
+
+dev.off()
+```
+
+
+```{r, fig.width=8, fig.height=8}
+p2 <- amr_class  %>% ggplot() +
+  geom_tile(aes(y = class,  x = new_id, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample ID") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8, hjust=0.95,vjust=0.2),
+        axis.text.y = element_text(size = 8))+
+  scale_x_discrete(na.translate =FALSE)+
+  coord_flip()
+  #ggtitle("Stationary Genetic Elements-ESBLs")
+
+p2
+```
+
+```{r}
+pdf(file = "./Unicycler_Figs/allclass_uni_fig_flip.pdf")   # The directory you want to save the file in
+
+p2
+
+dev.off()
+```
+
+*****************************BETA LAC****************************************
+
+```{r}
+betalac_label <- amr_clean %>% subset(class == "BETA-LACTAM") %>%
+  select(-c(sequence_name, element_type, element_subtype, class, subclass))%>%
+  left_join(esbl_rename) %>%
+  mutate(contig_tag = case_when(
+         .$new_id == "492" & .$gene_symbol == "blaTEM-1" ~ "1,2,3",
+         TRUE ~ contig_id)) %>%
+  select(contig_tag, new_id, gene_symbol) %>%
+  mutate(count =1) %>%
+  group_by(contig_tag, gene_symbol, new_id) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  select(-count)
+
+betalac <- amr_clean %>% subset(class == "BETA-LACTAM") %>%
+  select(-c(sequence_name, element_type, element_subtype, class, subclass)) %>%
+  group_by(participant_id, gene_symbol) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  left_join(esbl_rename) %>%
+  left_join(betalac_label)
+```
+
+```{r, fig.width=8, fig.height=8}
+p100 <- betalac %>% ggplot() +
+  geom_tile(aes(y = new_id, x = gene_symbol, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  geom_text(aes(y = new_id, x = gene_symbol, label = contig_tag), size = 4)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Beta-Lactam Gene") +
+  ylab("Sample ID")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size = 10, hjust=0.95,vjust=0.2),
+        axis.text.y = element_text(size = 10))+
+  scale_x_discrete(na.translate = FALSE)
+
+p100
+```
+
+```{r}
+pdf(file = "./Unicycler_Figs/betalac_uni_fig.pdf")   # The directory you want to save the file in
+
+p100
+
+dev.off()
+```
+
+*****************************QUINOLNONONE****************************************
+
+```{r}
+qui <- amr_clean %>% subset(class == "QUINOLONE") %>%
+  select(-c(sequence_name, element_type, element_subtype, class, subclass)) %>%
+  group_by(participant_id, gene_symbol, contig_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  left_join(esbl_rename)
+```
+
+```{r, fig.width=8, fig.height=8}
+p111 <- qui %>% ggplot() +
+  geom_tile(aes(y = new_id, x = gene_symbol, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  geom_text(aes(y = new_id, x = gene_symbol, label = contig_id), size = 4)+
+  theme_hc() +
+ scale_fill_gradientn(colors = "green")+
+  theme_bw() +
+  xlab("Quinolone Gene") +
+  ylab("Sample ID")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size = 10, hjust=0.95,vjust=0.2),
+        axis.text.y = element_text(size = 10))+
+  scale_x_discrete(na.translate = FALSE)
+
+p111
+```
+
+
+```{r}
+pdf(file = "./Unicycler_Figs/qui_uni_fig.pdf")   # The directory you want to save the file in
+
+p111
+
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

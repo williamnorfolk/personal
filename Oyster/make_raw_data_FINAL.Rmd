@@ -1,0 +1,155 @@
+---
+title: "make_raw_data"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+
+
+```
+
+```{r}
+make_mashable <- function(df, date){
+  make_this <- df %>% 
+    select(-c(X, ymin, ymax, sq)) %>%
+    mutate(date = date)
+  return(make_this)
+}
+
+
+stderr <- function(x) sd(x)/sqrt(length(x))
+
+```
+
+
+```{r}
+#sample 1
+vp1 <- read.csv("./data_check/clean_unknown_vp_6_15_22.csv") %>%
+  make_mashable("2022-06-15")
+#vp1 <- vp1 %>% subset(cq <= 36.5) #account for positives in neg controls
+
+vv1 <- read.csv("./data_check/clean_unknown_vv_6_15_22.csv") %>%
+  make_mashable("2022-06-15")
+#vv1 <- vv1 %>% subset(cq <= 33.4) # account for positives in neg controls
+
+raw1 <- rbind(vp1, vv1)
+
+#sample 2
+vp2 <- read.csv("./data_check/clean_unknown_vp_6_30_22.csv") %>%
+  make_mashable("2022-06-30")
+vv2 <- read.csv("./data_check/clean_unknown_vv_6_30_22.csv") %>%
+  make_mashable("2022-06-30")
+raw2 <- rbind(vp2, vv2)
+
+#sample 3
+vp3 <- read.csv("./data_check/clean_unknown_vp_7_14_22.csv") %>%
+  make_mashable("2022-07-14")
+vv3 <- read.csv("./data_check/clean_unknown_vv_7_14_22_cleaned.csv") %>%
+  make_mashable("2022-07-14")
+raw3 <- rbind(vp3, vv3)
+
+#sample 4
+vp4 <- read.csv("./data_check/clean_unknown_vp_7_27_22.csv") %>%
+  make_mashable("2022-07-27")
+vv4 <- read.csv("./data_check/clean_unknown_vv_7_27_22.csv") %>%
+  make_mashable("2022-07-27")
+raw4 <- rbind(vp4, vv4)
+
+#sample 5
+vp5 <- read.csv("./data_check/clean_unknown_vp_8_10_22.csv") %>%
+  make_mashable("2022-08-10")
+vv5 <- read.csv("./data_check/clean_unknown_vv_8_10_22.csv") %>%
+  make_mashable("2022-08-10")
+raw5 <- rbind(vp5, vv5)
+
+#sample 6
+vp6 <- read.csv("./data_check/clean_unknown_vp_8_23_22.csv") %>%
+  make_mashable("2022-08-23")
+vv6 <- read.csv("./data_check/clean_unknown_vv_8_23_22.csv") %>%
+  make_mashable("2022-08-23")
+raw6 <- rbind(vp6, vv6)
+
+#sample 7
+vp7 <- read.csv("./data_check/clean_unknown_vp_9_7_22.csv") %>%
+  make_mashable("2022-09-07")
+vv7 <- read.csv("./data_check/clean_unknown_vv_9_7_22.csv") %>%
+  make_mashable("2022-09-07")
+raw7 <- rbind(vp7, vv7)
+
+#sample 8
+vp8 <- read.csv("./data_check/clean_unknown_vp_9_20_22.csv") %>%
+  make_mashable("2022-09-20")
+vv8 <- read.csv("./data_check/clean_unknown_vv_9_20_22.csv") %>%
+  make_mashable("2022-09-20")
+raw8 <- rbind(vp8, vv8)
+
+#sample 9
+vp9 <- read.csv("./data_check/clean_unknown_vp_10_25_22.csv") %>%
+  make_mashable("2022-10-25")
+vv9 <- read.csv("./data_check/clean_unknown_vv_10_25_22.csv") %>%
+  make_mashable("2022-10-25")
+raw9 <- rbind(vp9, vv9)
+
+#sample 10
+vp10 <- read.csv("./data_check/clean_unknown_vp_11_2_22.csv") %>%
+  make_mashable("2022-11-02")
+vv10 <- read.csv("./data_check/clean_unknown_vv_11_2_22.csv") %>%
+  make_mashable("2022-11-02")
+raw10 <- rbind(vp10, vv10)
+
+mash_all <- rbind(raw1, raw2, raw3, raw4, raw5, raw6, raw7, raw8, raw9, raw10)
+```
+
+
+```{r}
+only_hex <- mash_all %>% subset(fluor == "HEX") %>%
+  mutate(qc = case_when(
+    .$cq > 38 ~ "Fail",
+    .$cq >= 36.5 & .$date == "2022-06-15" & .$target == "Vp" ~ "Fail",
+    .$cq >= 33.4 & .$date == "2022-06-15" & .$target == "Vv" ~ "Fail",
+    TRUE ~ "Pass")) %>%
+  group_by(date)
+
+only_cy5 <- mash_all %>% subset(fluor == "Cy5")  %>%
+  mutate(qc = case_when(
+    .$cq < 10 | .$cq > 34 ~ "Fail",
+    TRUE ~ "Pass"))%>%
+  group_by(date)
+
+
+hex_fails <- only_hex %>% subset(qc == "Fail")
+cy5_fails <- only_cy5 %>% subset(qc == "Fail")
+
+
+all_fails <- rbind(hex_fails, cy5_fails) %>%
+  group_by(date)
+
+```
+
+
+```{r}
+only_hex <- only_hex[,c(9,3,4:8,10, 1:2)]
+only_cy5 <- only_cy5[,c(9,3,4:8,10, 1:2)]
+all_fails <- all_fails[,c(9,3,4:8,10, 1:2)]
+
+```
+
+
+```{r}
+write.csv(only_hex, "./data_check/final_raw_data/only_hex.csv")
+
+write.csv(only_cy5, "./data_check/final_raw_data/only_cy5.csv")
+
+write.csv(all_fails, "./data_check/final_raw_data/all_fails.csv")
+```
+
+```{r}
+remove_fails <- only_hex %>% subset(qc == "Pass")
+
+write.csv(remove_fails, "./data_check/final_raw_data/remove_fails.csv")
+
+```
+
+

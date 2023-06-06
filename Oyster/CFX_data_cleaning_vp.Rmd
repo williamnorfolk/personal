@@ -1,0 +1,346 @@
+---
+title: "CFX_oyster_cleaning"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+raw <- read.csv("./6_15_22/vp_data_6_15_22_sample_1.csv") %>%
+  select(-target) %>%
+  mutate(target = "Vp")
+```
+
+
+```{r}
+fix_names <- raw %>% mutate(content = case_when(
+  .$content == "Unkn" & .$sample == "NTC Water" ~ "NTC",
+  TRUE ~ content)) 
+
+break_names <- fix_names %>%subset(content == "Unkn")
+  
+break_names$long_well <- break_names$well
+break_names$well <- gsub('.{2}$', '', break_names$well)
+break_names$replicate <- gsub("^.{0,3}", "", break_names$sample)
+break_names$container <- gsub('.{2}$', '', break_names$sample)
+
+
+start_clean <- break_names %>% mutate(dilution = case_when(
+  .$well == "A" ~ "-1",
+  .$well == "B" ~ "-1",
+  .$well == "C" ~ "-2",
+  .$well == "D" ~ "-2",
+  .$well == "E" ~ "-3",
+  .$well == "F" ~ "-3",
+  .$well == "G" ~ "-4",
+  .$well == "H" ~ "-4",
+  .$well == "I" ~ "-5",
+  .$well == "J" ~ "-5",
+  .$well == "K" ~ "-6",
+  .$well == "L" ~ "-6",
+  TRUE ~ "error"
+)) %>%
+  mutate(container = recode(container,
+                            "FC" = "Floating Cage",
+                            "FB" = "Floating Bag")) %>%
+  select(-well) %>%
+  rename(well = long_well)
+
+```
+
+```{r}
+unkn_clean <- start_clean %>% select(c(-well, -replicate)) %>%
+  group_by(fluor, content, sample, container, dilution) %>%
+  mutate(ymax = max(cq),
+         ymin = min(cq)) %>%
+  ungroup()  %>%
+  mutate(treatment = case_when(
+    .$sample == "FCT1" ~ "2 hr",
+    .$sample == "FCT2" ~ "2 hr",
+    .$sample == "FCT3" ~ "2 hr",
+    .$sample == "FBT1" ~ "2 hr",
+    .$sample == "FBT2" ~ "2 hr",
+    .$sample == "FBT3" ~ "2 hr",
+    .$sample == "FCC1" ~ "Control",
+    .$sample == "FCC2" ~ "Control",
+    .$sample == "FCC3" ~ "Control",
+    .$sample == "FBC1" ~ "Control",
+    .$sample == "FBC2" ~ "Control",
+    .$sample == "FBC3" ~ "Control",
+    TRUE ~ "error"))
+
+unkn_hex <- unkn_clean %>% subset(fluor == "HEX")
+unkn_cy5 <- unkn_clean %>% subset(fluor == "Cy5")
+
+
+unkn_hex %>% ggplot() +
+  geom_boxplot(aes(x = container, y = cq, fill = dilution), position = position_dodge()) +
+  geom_vline(xintercept = 1.5, linetype = "longdash") +
+  facet_wrap(~treatment)+
+  theme_bw() +
+  xlab("Container Type") +
+  ylab("Cq Values (N = 3)") +
+  ggtitle("Unknown Samples: Cq Values tlh")+
+  labs(fill = "MPN Dilution")+
+    scale_y_continuous(breaks = seq(15, 40, 10), limits = c(15, 40))
+
+
+unkn_cy5 %>% ggplot() +
+  geom_boxplot(aes(x = container, y = cq, fill = dilution), position = position_dodge()) +
+  geom_vline(xintercept = 1.5, linetype = "longdash") +
+  facet_wrap(~treatment)+
+  theme_bw() +
+  xlab("Container Type") +
+  ylab("Cq Values (N = 3)") +
+  ggtitle("Unknown Samples: Cq Values IAC")+
+  labs(fill = "MPN Dilution") +
+  scale_y_continuous(breaks = seq(15, 40, 10), limits = c(15, 40))
+```
+
+
+```{r}
+
+controls_only <- fix_names %>% subset(content == "Pos Ctrl" | content == "Neg Ctrl" | content == "NTC") 
+
+controls_only$long_well <- controls_only$well
+controls_only$well <- gsub('.{2}$', '', controls_only$well)
+
+controls_clean <- controls_only %>% mutate(dilution = case_when(
+  .$well == "M" & .$long_well == "M01" ~ "-1",
+  .$well == "M" & .$long_well == "M02" ~ "-1",
+  .$well == "M" & .$long_well == "M03" ~ "-1",
+  .$well == "N" & .$long_well == "N01" ~ "-2",
+  .$well == "N" & .$long_well == "N02" ~ "-2",
+  .$well == "N" & .$long_well == "N03" ~ "-2",
+  .$well == "O" & .$long_well == "O01" ~ "-3",
+  .$well == "O" & .$long_well == "O02" ~ "-3",
+  .$well == "O" & .$long_well == "O03" ~ "-3",
+  .$well == "P" & .$long_well == "P01" ~ "-4",
+  .$well == "P" & .$long_well == "P02" ~ "-4",
+  .$well == "P" & .$long_well == "P03" ~ "-4",
+  .$well == "M" & .$long_well == "M05" ~ "-5",
+  .$well == "M" & .$long_well == "M06" ~ "-5",
+  .$well == "M" & .$long_well == "M07" ~ "-5",
+  .$well == "O" & .$long_well == "O05" ~ "-6",
+  .$well == "O" & .$long_well == "O06" ~ "-6",
+  .$well == "O" & .$long_well == "O07" ~ "-6",
+  
+  .$well == "M" & .$long_well == "M09" ~ "-1",
+  .$well == "M" & .$long_well == "M10" ~ "-1",
+  .$well == "M" & .$long_well == "M11" ~ "-1",
+  .$well == "N" & .$long_well == "N09" ~ "-2",
+  .$well == "N" & .$long_well == "N10" ~ "-2",
+  .$well == "N" & .$long_well == "N11" ~ "-2",
+  .$well == "O" & .$long_well == "O09" ~ "-3",
+  .$well == "O" & .$long_well == "O10" ~ "-3",
+  .$well == "O" & .$long_well == "O11" ~ "-3",
+  .$well == "P" & .$long_well == "P09" ~ "-4",
+  .$well == "P" & .$long_well == "P10" ~ "-4",
+  .$well == "P" & .$long_well == "P11" ~ "-4",
+  .$well == "M" & .$long_well == "M13" ~ "-5",
+  .$well == "M" & .$long_well == "M14" ~ "-5",
+  .$well == "M" & .$long_well == "M15" ~ "-5",
+  .$well == "O" & .$long_well == "O13" ~ "-6",
+  .$well == "O" & .$long_well == "O14" ~ "-6",
+  .$well == "O" & .$long_well == "O15" ~ "-6",
+  .$sample == "NTC IAC" ~ "IAC Only",
+  .$sample == "NTC Water" ~ "Water Control",
+  TRUE ~ "error")) %>%
+  mutate(container = "Control") %>%
+  mutate(replicate = rep(1:3, 26))%>% #divide the error number by 3 = last number in rep()
+  select(-well) %>%
+  rename(well = long_well)
+
+```
+
+
+```{r}
+controls_plot <- controls_clean %>% select(c(-well, -replicate)) %>%
+  group_by(fluor, content, sample, container, dilution) %>%
+  mutate(ymax = max(cq),
+         ymin = min(cq)) %>%
+  ungroup() #%>%
+#  select(-sample) %>%
+#  group_by(fluor, content, container, dilution) %>%
+#  summarize_if(is.numeric, mean) %>%
+#  ungroup()
+
+control_hex <- controls_clean %>% subset(fluor == "HEX")
+control_cy5 <- controls_clean %>% subset(fluor == "Cy5")
+
+
+control_hex %>% ggplot() +
+  geom_boxplot(aes(x = content, y = cq, fill = dilution, color = dilution), position = position_dodge()) +
+  theme_bw() +
+  xlab("Container Type") +
+  ylab("Cq Values (N = 3)") +
+  ggtitle("Controls: Cq Values tlh")+
+  labs(fill = "MPN Dilution")+
+  scale_y_continuous(breaks = seq(15, 40, 10), limits = c(15, 40))+
+    scale_color_discrete(guide = "none")
+
+
+
+control_cy5 %>% ggplot() +
+  geom_boxplot(aes(x = content, y = cq, fill = dilution, color = dilution), position = position_dodge()) +
+  theme_bw() +
+  xlab("Container Type") +
+  ylab("Cq Values (N = 3)") +
+  ggtitle("Controls: Cq Values IAC")+
+  labs(fill = "MPN Dilution") +
+ scale_y_continuous(breaks = seq(15, 40, 10), limits = c(15, 40))+
+  scale_color_discrete(guide = "none")
+
+```
+
+```{r}
+write.csv(controls_clean, "./11_2_22/clean_controls_vp_11_2_22.csv")
+write.csv(unkn_clean, "./11_2_22/clean_unknown_vp_11_2_22.csv")
+
+```
+
+
+```{r}
+library(MPN)
+mpn_frame <- unkn_hex %>% mutate(pos = case_when(
+  .$cq > 37 | .$cq == "NaN" ~ "Negative",   #set threshold
+  TRUE ~ "Positive"))
+
+
+mpn_pretty <- mpn_frame %>% select(sample, dilution, pos) %>%
+  mutate(hits = case_when(
+    .$pos == "Positive" ~ 1,
+    TRUE ~ 0)) %>%
+  group_by(sample, dilution) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+mpn_make <- mpn_pretty %>% subset(sample == "FBC1")
+fbc1_mpn <- as.vector(mpn_make$hits)
+```
+
+```{r}
+#MPN calculator 
+find_mpn <- function(df, sample_name){
+  mpn_make <- df %>% subset(sample == sample_name)
+  vectorize <- as.vector(mpn_make$hits)
+  
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001)
+
+calc <- mpn(positive = vectorize, tubes = tubes, amount = amount)
+return(calc$MPN)
+
+}
+```
+
+```{r}
+#fbc 
+fbc1_mpn <- find_mpn(mpn_pretty, "FBC1") %>%
+  as_tibble() %>%
+  mutate(sample = "FBC1",
+         treatment = "Control",
+         container = "Floating Bag")
+
+fbc2_mpn <- find_mpn(mpn_pretty, "FBC2") %>%
+  as_tibble() %>%
+  mutate(sample = "FBC2",
+         treatment = "Control",
+         container = "Floating Bag") 
+
+fbc3_mpn <- find_mpn(mpn_pretty, "FBC3") %>%
+  as_tibble() %>%
+  mutate(sample = "FBC3",
+         treatment = "Control",
+         container = "Floating Bag") 
+
+#fbt
+
+fbt1_mpn <- find_mpn(mpn_pretty, "FBT1") %>%
+  as_tibble() %>%
+  mutate(sample = "FBT1",
+         treatment = "2 hrs",
+         container = "Floating Bag") 
+
+fbt2_mpn <- find_mpn(mpn_pretty, "FBT2") %>%
+  as_tibble() %>%
+  mutate(sample = "FBT2",
+         treatment = "2 hrs",
+         container = "Floating Bag") 
+
+fbt3_mpn <- find_mpn(mpn_pretty, "FBT3") %>%
+  as_tibble() %>%
+  mutate(sample = "FBT3",
+         treatment = "2 hrs",
+         container = "Floating Bag") 
+
+#fcc
+
+fcc1_mpn <- find_mpn(mpn_pretty, "FCC1") %>%
+  as_tibble() %>%
+  mutate(sample = "FCC1",
+         treatment = "Control",
+         container = "Floating Cage") 
+
+fcc2_mpn <- find_mpn(mpn_pretty, "FCC2") %>%
+  as_tibble() %>%
+  mutate(sample = "FCC2",
+         treatment = "Control",
+         container = "Floating Cage") 
+
+fcc3_mpn <- find_mpn(mpn_pretty, "FCC3") %>%
+  as_tibble() %>%
+  mutate(sample = "FCC3",
+         treatment = "Control",
+         container = "Floating Cage") 
+
+#fct
+
+fct1_mpn <- find_mpn(mpn_pretty, "FCT1") %>%
+  as_tibble() %>%
+  mutate(sample = "FCT1",
+         treatment = "2 hrs",
+         container = "Floating Cage") 
+
+fct2_mpn <- find_mpn(mpn_pretty, "FCT2") %>%
+  as_tibble() %>%
+  mutate(sample = "FCT2",
+         treatment = "2 hrs",
+         container = "Floating Cage") 
+
+fct3_mpn <- find_mpn(mpn_pretty, "FCT3") %>%
+  as_tibble() %>%
+  mutate(sample = "FCT3",
+         treatment = "2 hrs",
+         container = "Floating Cage") 
+
+
+master_mpn <- rbind(fbt1_mpn, fbt2_mpn, fbt3_mpn, fcc1_mpn, fcc2_mpn, fcc3_mpn, fbc1_mpn, fbc2_mpn, fbc3_mpn, fct1_mpn, fct2_mpn, fct3_mpn)
+
+```
+
+```{r}
+write_csv(master_mpn, "./11_2_22/master_mpn_sample10_vp.csv")
+```
+
+
+```{r}
+library(MPN)
+tubes <- c(3,3,3,3,3,3)
+amount = c(0.1, 00.1, 0.001, 0.0001, 0.00001, 0.000001)
+
+
+mpn(positive = fbc1_mpn, tubes = tubes, amount = amount)
+
+```
+
+
+
+
+
+
+

@@ -1,0 +1,543 @@
+---
+title: "ecoli_amr_analysis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-22)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+#mash_data$est_counts <- as.numeric(as.character(mash_data$est_counts))
+#mash_data$tpm <- as.numeric(as.character(mash_data$tpm))
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+full_ecoli <- list.files("./raw_data/All_CRAP_E.coli_unenrich_Full_Genome_stationary_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+partial_ecoli <- list.files("./raw_data/CRAP_E.coli_unenrich_Partial_Genome_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+mobile_ecoli <- list.files("./raw_data/CRAP_E.coli_unenrich_MobileGeneticElements_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+gsub_full_ecoli <- "^.{0,77}"
+
+gsub_partial_ecoli <- "^.{0,65}"
+
+gsub_mobile_ecoli <- "^.{0,72}"
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_amr_full_ecoli <- mash_data(full_ecoli, gsub_full_ecoli) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_full_ecoli$participant_id <- gsub("-", "", mash_amr_full_ecoli$participant_id)
+
+#partial = garbo (no data)
+#mash_amr_partial_ecoli <- mash_data(partial_ecoli, gsub_partial_ecoli) %>%
+#  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+#  rename(participant_id = file,
+#         gene_symbol = `Gene symbol`,
+#         sequence_name = `Sequence name`,
+#         element_type = `Element type`,
+#         element_subtype = `Element subtype`,
+#         class = Class,
+#         subclass = Subclass)
+
+
+mash_amr_ecoli_mobile <- mash_data(mobile_ecoli, gsub_mobile_ecoli) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_ecoli_mobile$participant_id <- gsub("-", "", mash_amr_ecoli_mobile$participant_id)
+```
+
+
+```{r}
+full_ecoli_clean <- mash_amr_full_ecoli %>% mutate(count = 1)
+
+full_ecoli_class <- full_ecoli_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+mobile_ecoli_clean <- mash_amr_ecoli_mobile %>% mutate(count = 1)
+
+mobile_ecoli_class <- mobile_ecoli_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+```
+
+```{r}
+library(randomcoloR)
+set.seed(25632)
+color2 <- randomcoloR::distinctColorPalette(k = 80)
+
+pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+
+```
+
+```{r, fig.width=8}
+p1 <- full_ecoli_class %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color2)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 6, vjust = 0, hjust = 0.75),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+  ggtitle("Unenriched E. coli Full Genomes-AMR ARGs Detected")
+
+p1
+
+full_ecoli_class %>% ggplot() +
+  geom_tile(aes(x = participant_id, y = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample Number") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =6))
+
+
+```
+```{r}
+saveRDS(color2, "./final_pal.rds")
+
+color2
+
+color3 <-c("#EF43C8", "#52B6EE", "#EAEE85", "#4630A2", "#52659E", "#80EB9E", "#B88764", "#99EA79", "#C8B6F2")
+```
+
+
+```{r, fig.width=8}
+p1 <- mobile_ecoli_class %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color3)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 6, vjust = 0, hjust = 0.75),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+  ggtitle("Unenriched E. coli Full Genomes-AMR ARGs Detected")
+
+p1
+
+mobile_ecoli_class %>% ggplot() +
+  geom_tile(aes(x = participant_id, y = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample Number") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =6))
+
+
+```
+
+```{r}
+full_ecoli_figmake <- full_ecoli_class
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A3027V", ]
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A2445T", ]
+```
+
+
+```{r}
+mobile_figmake <- mobile_ecoli_class
+mobile_figmake <- mobile_figmake[!mobile_figmake$participant_id == "A3027V", ]
+mobile_figmake <- mobile_figmake[!mobile_figmake$participant_id == "A2445T", ]
+```
+
+
+```{r}
+order_fig <- full_ecoli_figmake %>% select(-class) %>%
+  group_by(participant_id) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup() %>%
+  rename(full_count = count)
+
+full_ecoli_figmake <- full_ecoli_figmake %>% left_join(order_fig) %>%
+  mutate(participant_id = recode(participant_id,
+                                 "A6261J" = "A6261T"))
+
+zz <- mobile_figmake %>% left_join(order_fig) %>%
+  mutate(participant_id = recode(participant_id,
+                                 "A6261J" = "A6261T"))
+```
+
+```{r}
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A3027V", ]
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A2445T", ]
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A9449F", ]
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A4877Q", ]
+
+
+```
+
+```{r}
+full_ecoli_figmake$participant_id <- reorder(full_ecoli_figmake$participant_id, full_ecoli_figmake$full_count)
+```
+
+```{r}
+all_parti <- unique(full_ecoli_figmake$participant_id) %>% as_tibble() %>% rename(participant_id = value)
+
+zztop <- all_parti %>% full_join(zz)
+```
+```{r}
+color2
+```
+
+
+
+```{r, fig.width=10}
+
+colorzztop <-c("#EF43C8", "#C18EA6", "#52B6EE", "#E3AD3F", "#7756CE", "#EAEE85", "#922BAA", "orange", "#64DAA9", "#E1CDC1", "#52659E", "#E34234", "darkgreen", "#71797E", "#B88764", "#99EA79", "#C8B6F2")
+
+pull_order <- full_ecoli_figmake %>% select(participant_id, full_count) %>%
+  group_by(participant_id) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  rename(orderize = full_count)
+
+zztop <- pull_order %>% left_join(zztop)
+
+p11 <- full_ecoli_figmake %>% ggplot() +
+  geom_bar(aes(y = reorder(participant_id, full_count), x = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = colorzztop)+
+  theme_hc() +
+  xlab("ARG Hits Per Sample") +
+  ylab("")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.y = element_text(size = 5, vjust = 0, hjust = 0.75),
+        legend.position = "left",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))
+
+p11
+
+```
+```{r}
+v <- full_ecoli_figmake %>% select(c(participant_id, full_count)) %>%
+  group_by(participant_id) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+
+x <- reorder(v$participant_id, -v$full_count)
+```
+
+
+```{r, fig.width=10}
+
+colorz <-c("#EF43C8", "#52B6EE", "#EAEE85", "orange", "#52659E", "#E34234", "#B88764", "#99EA79", "#C8B6F2")
+
+
+p44 <- zztop %>% ggplot() +
+  geom_bar(aes(y = reorder(participant_id, orderize), x = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = colorz)+
+  theme_hc() +
+  xlab("ARG Hits Per Sample") +
+  ylab("")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.y = element_text(size = 5, vjust = 0.5, hjust = 0.75),
+        legend.position = "none",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+scale_y_discrete(drop = FALSE, position = "left")+
+  scale_x_continuous(position = "bottom")
+
+
+p44
+```
+
+```{r}
+n_distinct(full_ecoli_figmake$participant_id)
+```
+
+
+```{r}
+culture_clean <- read.csv("../culture_clean.csv")
+culture_clean$participant_id <- gsub("-", "", culture_clean$participant_id)
+
+
+add_culture <- full_ecoli_class %>% left_join(culture_clean) %>%
+  select(-c(X, esbl, cre, age, ecoli_cultured)) %>%
+  mutate(all_resist = amp_resistant_isolates + tetra_resistant_isolates + trimet_resistant_isolates +                                   cipro_resistant_isolates + ceft_resistant_isolates)
+```
+
+
+
+*****************************************PHenotypes***************************************************
+```{r}
+phenos <- read.delim("./Comensal_ecoli_phenotypes.tsv") %>%
+  as_tibble() %>%
+  rename(full_name = Item.Name.., 
+         participant_id = Participant.ID,
+         amp1 = Ampicillin..1.,
+         amp2 = Ampicillin..2.,
+         ceft1 = Cefriaxone..1.,
+         ceft2 = Ceftriaxone..2.,
+         cipro1 = Ciprofloxacin..1.,
+         cipro2 = Ciprofloxacin..2.,
+         tetra1 = Tetracycline..1.,
+         tetra2 = Tetracycline..2.,
+         trimet1 = Trimethoprim..1.,
+         trimet2 = Trimethoprim..2.) %>%
+  mutate(amp = (amp1 + amp2) /2,
+         tetra = (tetra1 + tetra2)/2,
+         trimet = (trimet1 + trimet2) /2,
+         ceft = (ceft1 +ceft2)/2,
+         cipro = (cipro1 + cipro2)/2) %>%
+  select(-c(amp1, amp2, tetra1, tetra2, trimet1, trimet2, ceft1, ceft2, cipro1, cipro2))
+
+phenos[is.na(phenos)] <- 0
+
+```
+
+```{r}
+
+clean_pheno <- phenos %>% mutate(amp = recode(amp,
+                                              "1" = "Full Resistance",
+                                              "0.75" = "Partial Resistance",
+                                              "0.5" = "Partial Resistance",
+                                              "0.25" = "Partial Resistance",
+                                              "0" = "No Resistance")) %>%
+  mutate(tetra = recode(tetra,
+                                              "1" = "Full Resistance",
+                                              "0.75" = "Partial Resistance",
+                                              "0.5" = "Partial Resistance",
+                                              "0.25" = "Partial Resistance",
+                                              "0" = "No Resistance")) %>%
+  mutate(trimet = recode(trimet,
+                                              "1" = "Full Resistance",
+                                              "0.75" = "Partial Resistance",
+                                              "0.5" = "Partial Resistance",
+                                              "0.25" = "Partial Resistance",
+                                              "0" = "No Resistance")) %>%
+  mutate(ceft = recode(ceft,
+                                              "1" = "Full Resistance",
+                                              "0.75" = "Partial Resistance",
+                                              "0.5" = "Partial Resistance",
+                                              "0.25" = "Partial Resistance",
+                                              "0" = "No Resistance")) %>%
+  mutate(cipro = recode(cipro,
+                                              "1" = "Full Resistance",
+                                              "0.75" = "Partial Resistance",
+                                              "0.5" = "Partial Resistance",
+                                              "0.25" = "Partial Resistance",
+                                              "0" = "No Resistance")) %>%
+  pivot_longer(cols = -c(full_name, participant_id), names_to = "antibiotic", values_to = "resist")%>% 
+  mutate(participant_id = recode(participant_id,
+                                  "A-6760E" = "A-676OE"))
+
+
+clean_pheno$participant_id <- gsub("-", "", clean_pheno$participant_id)
+
+pheno_vs_geno <- full_ecoli_class %>% 
+  mutate(participant_id = recode(participant_id,
+                                 "A6261J" = "A6261T",
+                                  "A6760E" = "A676OE")) %>%
+  left_join(clean_pheno) 
+
+```
+Wrong IDs -- A3027V, A2445T, A3027B A9449F
+
+```{r, fig.width=8}
+pheno_vs_geno <- pheno_vs_geno[!pheno_vs_geno$participant_id == "A3027V", ]
+pheno_vs_geno <- pheno_vs_geno[!pheno_vs_geno$participant_id == "A2445T", ]
+pheno_vs_geno <- pheno_vs_geno[!pheno_vs_geno$participant_id == "A9449F", ]
+pheno_vs_geno <- pheno_vs_geno[!pheno_vs_geno$participant_id == "A4877Q", ]
+
+
+
+```
+
+```{r}
+pheno_vs_geno <- pheno_vs_geno %>% left_join(order_fig) 
+```
+```{r}
+test <- pheno_vs_geno %>% select(-c(class, full_name)) %>%
+  group_by(participant_id, antibiotic, resist) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+pheno_vs_geno <-test
+```
+
+
+
+```{r}
+pheno_vs_geno$resist <- factor(pheno_vs_geno$resist, 
+                               levels = c("No Resistance", "Partial Resistance", "Full Resistance"))
+
+pheno_vs_geno$antibiotic <- factor(pheno_vs_geno$antibiotic, 
+                               levels = c("ceft", "cipro", "trimet", "tetra", "amp"))
+
+p2 <- pheno_vs_geno %>% ggplot() +
+  geom_tile(aes(x= antibiotic, y = reorder(participant_id, count), fill = resist),
+            width = 0.5, height = 0.5, color = "grey") +
+  scale_fill_manual(values = c("white", "#EE4B2B", "#0096FF")) +
+  theme_hc()+
+  theme(axis.text.y = element_text(size =5, vjust = 0.5),
+        legend.position = "left") +
+  xlab("Antibiotic Resisted") +
+  ylab("")+
+  labs(fill = "Labratory Phenotype\nResistance Level")
+
+p2
+```
+
+
+```{r, fig.width=10, fig.height=10}
+library(ggpubr)
+commensal_amr_fig <- ggarrange(p2, p44, p11, heights = c(2, 2, 0.5),
+          ncol = 3, nrow = 1, align = "h", label.x = "test")
+
+commensal_amr_fig
+
+commensal_amr_fig_1 <- ggarrange(p2, p11, heights = c(2, 2, 0.5),
+          ncol = 3, nrow = 1, align = "h", label.x = "test")
+
+commensal_amr_fig_1
+```
+
+
+
+
+
+
+```{r}
+all_mobiles <- mobile_ecoli_clean 
+all_mobiles <- all_mobiles[!all_mobiles$participant_id == "A3027V", ]
+all_mobiles <- all_mobiles[!all_mobiles$participant_id == "A2445T", ]
+
+
+all_mobiles_genes <- all_mobiles %>% select(gene_symbol)
+
+gene_list <- unique(all_mobiles_genes$gene_symbol) %>% as_tibble()
+
+write.csv(gene_list, "commensal_ecoli_gene_list.csv")
+```
+
+
+
+
+************************************************************************************************
+
+```{r}
+non_moving <- full_ecoli_clean %>% subset(class == "BETA-LACTAM") %>%
+  mutate(type = "Genome")
+moving <- mobile_ecoli_clean %>% subset(class == "BETA-LACTAM") %>%
+  mutate(type = "Mobile Genetic Elements")
+
+combine_these <- rbind(non_moving, moving)
+
+combine_these <- combine_these[!combine_these$participant_id == "A3027V", ]
+combine_these <- combine_these[!combine_these$participant_id == "A2445T", ]
+
+make_this <- combine_these %>%
+  select(c(gene_symbol, count, type)) %>%
+  group_by(gene_symbol, type) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+```
+
+
+```{r}
+pal <- colorRampPalette(c("green", "yellow", "orange", "red"))(100)
+
+
+make_this %>% ggplot() +
+  geom_tile(aes(x = type, y = reorder(gene_symbol, count), fill = count), 
+            width = 0.7, height = 0.5, color = "black") +
+  geom_text(aes(x = type, y = reorder(gene_symbol, count), fill = count, label = paste0("N = ", count)))+
+  scale_fill_gradientn(colors = pal) +
+  theme_bw() +
+  xlab("") +
+  ylab("Beta-Lactam Gene") +
+  labs(fill = "Beta-Lactam Hits\nPer Genetic Element")
+```
+
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A3027V", ]
+full_ecoli_figmake <- full_ecoli_figmake[!full_ecoli_figmake$participant_id == "A2445T", ]
+
+
+
+
+```{r}
+find_z_stat <- function(p_hat, p_null, n_val){
+ bottom <- 1-p_null
+ bottom <- bottom*p_null
+ bottom <- bottom/n_val
+ bottom <- sqrt(bottom)
+ top <- p_hat - p_null
+  final_z <- top/bottom
+  return(final_z)
+ }
+
+
+find_z_stat(0.5172, 0.5, 25468)
+find_z_stat(0.56, 0.6775, 377)
+
+```
+
+```{r}
+#porportional therom
+compare_porportions <- function(p_hat_1, p_hat_2, n1, n2){
+  
+}
+  
+  
+compare_porportions()
+```
+

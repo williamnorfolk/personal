@@ -1,0 +1,561 @@
+---
+title: "esbl_minion_seq_data"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-22)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+return(mash_data)
+}
+
+```
+
+```{r}
+#batch load files
+#identify file names in the folder
+filenames <- list.files("./All_ONT_ESBL_AMRFinder_Results", pattern="*tsv", full.names=TRUE)
+
+gsub_make <- "^.{0,33}"
+```
+
+
+```{r, include = FALSE}
+#this one is long!
+mash_amr <- mash_data(filenames, gsub_make) %>%
+  rename(sample = file,
+         gene_symbol = `Gene symbol`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+raw_data <- mash_amr %>% select(-c(`HMM id`, `HMM description`, `Protein identifier`))
+
+#dd <- raw_data %>% subset(class == "BETA-LACTAM")
+```
+
+
+```{r}
+#remove extra columns
+clean_amr <- mash_amr %>% select(c(sample, gene_symbol, element_type, element_subtype, class, subclass))
+#find any NA = classes
+find_nas <- clean_amr[is.na(clean_amr$class), ]
+#genes that have no class designation == mostly VIRULENCE
+not_found_gene_symbols <- unique(find_nas$gene_symbol)
+#remove reom downstream analyses
+clean_amr_no_na <- clean_amr[!is.na(clean_amr$class), ]
+```
+
+
+```{r}
+#count all hits fro each class
+plot_clean_total <- clean_amr_no_na %>% mutate(count = 1) %>%
+  group_by(class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+#plot all hits for each class
+p1 <- plot_clean_total %>% ggplot() +
+  geom_bar(aes(x = class, y = count, fill = class), stat = "identity") +
+    theme_bw()+
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "none")
+
+p1
+```
+```{r}
+pdf(file = "./figs_for_coralis/p1.pdf")   # The directory you want to save the file in
+
+p1
+
+dev.off()
+```
+
+
+```{r}
+#add anchors
+clean_amr_no_na <- clean_amr_no_na %>% mutate(tag = 1:832)
+
+#do the split
+split_names <- str_split_fixed(clean_amr_no_na$sample, "\\-", 3)  %>% 
+  as_tibble() %>%
+  mutate(tag = 1:832) #total counts
+
+#rejoin names, clean columns, and define repeats
+add_ids <- left_join(clean_amr_no_na, split_names) %>%
+  rename(age = "V1",
+         person_id = "V2",
+         e_number = "V3") %>%
+  mutate(participant_id = paste0(age, person_id)) %>%
+  select(-c(age, person_id, tag)) %>%
+  mutate(repeat_sample = case_when(
+    nchar(.$participant_id) == "7" ~ "Yes",
+    TRUE ~ "No"))
+
+only_non_repeats <- add_ids %>% subset(repeat_sample == "No")
+only_repeats <- add_ids %>% subset(repeat_sample == "Yes")
+
+```
+
+```{r}
+esbl_ids <- only_non_repeats$participant_id %>%
+  as_tibble() %>%
+  rename(participant_id = value)
+
+saveRDS(esbl_ids, "./esbl_ids.rds")
+```
+
+
+```{r}
+clean_non_reps <- only_non_repeats %>% 
+  select(participant_id, e_number, class) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, e_number, class) %>%
+  summarise_if(is.numeric, sum) %>%
+    ungroup()
+
+
+clean_reps <- only_repeats %>% 
+  select(participant_id, e_number, class) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, e_number, class) %>%
+  summarise_if(is.numeric, sum) %>%
+    ungroup()
+```
+
+
+```{r}
+library(randomcoloR)
+set.seed(2745)
+color2 <- randomcoloR::distinctColorPalette(k = 80)
+```
+
+```{r}
+esbl_rename <- read_excel("./name_key_publication.xlsx", 1)
+
+esbl_rename$participant_id <- paste0("A", esbl_rename$participant_id)
+
+child_rename <- read_excel("./name_key_publication.xlsx", 2)
+
+reorder_renames <- read_excel("./name_key_publication.xlsx", 3)
+
+
+esbl_rename <- rbind(esbl_rename, child_rename) %>%
+  left_join(reorder_renames) %>%
+  group_by(participant_id, sample_number) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+
+```
+
+
+```{r, fig.width=9}
+e1_non_reps <- clean_non_reps %>% subset(e_number == "E1") %>% left_join(esbl_rename)
+
+p2 <- e1_non_reps %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), stat = "identity", drop = FALSE)+
+  #facet_wrap(~e_number) +
+  scale_fill_manual(values = color2)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, vjust = 0.5),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))
+
+p2
+```
+```{r}
+pdf(file = "./figs_for_coralis/p2.pdf")   # The directory you want to save the file in
+
+p2
+
+dev.off()
+```
+
+```{r}
+#e1 vs e2
+e1_vs_e2_non_reps <- clean_non_reps %>% 
+  subset(participant_id == "A3034U"| participant_id == "A4688H"| participant_id == "A6819G"| participant_id == "A7752B"| participant_id == "A8032P"| participant_id == "A8276M"| participant_id == "A8332C")
+
+
+p3 <- e1_vs_e2_non_reps %>% ggplot() +
+  geom_bar(aes(x = participant_id, y = count, fill = class), stat = "identity", drop = FALSE)+
+  facet_wrap(~e_number) +
+  scale_fill_manual(values = color2)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, vjust = 0.5),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))
+
+p3
+```
+```{r}
+pdf(file = "./figs_for_coralis/p3.pdf")   # The directory you want to save the file in
+
+p3
+
+dev.off()
+```
+
+```{r, fig.width=9}
+has_reps <- clean_non_reps %>% subset(participant_id == "A1948A" | participant_id == "A2367P" | participant_id == "A2616B" | participant_id == "A3034U" | participant_id == "A3241Q" | participant_id =="A3599W" | participant_id == "A3625Z" | participant_id == "A3674C" | participant_id == "A4688H" | participant_id =="A7550R" | participant_id == "A8032P" | participant_id == "A8237Y" | participant_id == "A8332C" | participant_id =="A8460E" | participant_id == "A8743R" | participant_id == "C2367P") %>%
+  mutate(rep = "1st")
+
+second_round <- clean_reps %>% mutate(rep = "2nd")
+#second_round$participant_id <- substr(second_round$participant_id,1,nchar(second_round$participant_id)-1)
+
+repeat_compare <- rbind(second_round, has_reps) %>% left_join(esbl_rename) %>%
+  mutate(sample_number = case_when(
+    .$rep == "2nd" ~ paste0(sample_number,"-R"),
+    TRUE ~ sample_number))
+
+
+
+p5 <- repeat_compare %>% ggplot() +
+  geom_bar(aes(x = sample_number, y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color2)+
+ # facet_wrap(~participant_id) +
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))
+
+p5
+```
+```{r}
+culture_clean <- read.csv("./culture_clean.csv")
+culture_clean$participant_id <- gsub("-", "", culture_clean$participant_id)
+
+
+repeat_compate_culture <- repeat_compare %>% left_join(culture_clean) %>%
+  select(participant_id, esbl, rep) %>%
+  mutate(count = 1) %>%
+  group_by(participant_id, esbl, rep) %>%
+  summarize_if(is.numeric,  mean) %>%
+ ungroup()
+```
+```{r}
+pdf(file = "./figs_for_coralis/p5.pdf")   # The directory you want to save the file in
+
+p5
+
+dev.off()
+```
+
+
+```{r}
+pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+```
+
+
+```{r}
+p11 <- e1_non_reps %>% ggplot() +
+  geom_tile(aes(x = participant_id, y = class, fill = count))+
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample Number") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90))
+
+p11
+```
+
+
+
+```{r}
+
+
+add_culture <- e1_non_reps %>% left_join(culture_clean) %>%
+  select(-c(X, esbl, cre, age, ecoli_cultured)) %>%
+  mutate(all_resist = amp_resistant_isolates + tetra_resistant_isolates + trimet_resistant_isolates +                                   cipro_resistant_isolates + ceft_resistant_isolates)
+```
+
+```{r, fig.width=8}
+library(ggthemes)
+
+add_culture <- add_culture
+add_culture$count[is.na(add_culture$count)] <- 0
+
+add_culture <- add_culture %>% left_join(esbl_rename)
+
+p4 <-add_culture %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, -order_number), x = class, fill = count, drop = FALSE), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc()+
+  scale_x_discrete(na.translate = FALSE)+
+  theme(#axis.text.y = element_blank(),
+        axis.ticks.length.y = unit(0,"cm"),
+        axis.text.x = element_text(angle = 90, size = 7, vjust=0.5, hjust =1),
+        legend.position = "left")+
+    scale_fill_gradientn(colors = pal)+
+  ylab("")+
+  xlab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")
+
+p4
+```
+```{r}
+pdf(file = "./figs_for_coralis/p4.pdf")   # The directory you want to save the file in
+
+p4
+
+dev.off()
+```
+
+```{r}
+
+flip_culture <- add_culture %>% pivot_longer(cols = -c(class, count, participant_id, total_isolates, all_resist, order_number, sample_number, e_number), names_to = "antibiotic", values_to = "resist_count") %>%
+  mutate(antibiotic = recode(antibiotic,
+                             "amp_resistant_isolates" = "Ampicillin",
+                             "tetra_resistant_isolates" = "Tetracycline",
+                             "trimet_resistant_isolates" = "Trimethoprim",
+                             "cipro_resistant_isolates" = "Ciprofloxacin",
+                             "ceft_resistant_isolates" = "Ceftriaxone")) %>%
+  select(-c(class, count, total_isolates)) %>%
+  group_by(participant_id, all_resist, antibiotic) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+flip_culture$antibiotic <- factor(flip_culture$antibiotic, levels = c("Ceftriaxone", "Ciprofloxacin", "Trimethoprim", "Tetracycline", "Ampicillin"))
+
+flip_culture %>% ggplot() +
+  geom_bar(aes(x = reorder(participant_id, -all_resist), y = all_resist), stat = "identity")
+
+
+p2<- flip_culture %>% ggplot() +
+  geom_bar(aes(x = reorder(participant_id, -all_resist), y = resist_count, fill = antibiotic), 
+           stat = "identity", width = 0.8)+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("Participant ID") +
+  ylab("E. coli Resistance Patterns")+
+  labs(fill = "Antibiotic\nResisted")
+
+p2 
+
+mask_flip <- flip_culture %>% left_join(esbl_rename)
+
+
+p3<- mask_flip %>% ggplot() +
+  geom_bar(aes(y = reorder(sample_number, -order_number), x = resist_count, fill = antibiotic), 
+           stat = "identity", width = 0.8)+
+  theme_hc() +
+  theme(legend.position = "right")+
+  xlab("E. coli Resistance Patterns") +
+  ylab("")+
+  labs(fill = "Antibiotic Resisted")
+
+p3
+```
+
+```{r, fig.width=10}
+library(ggpubr)
+
+all_fig <- ggarrange(p4, p3, heights = c(2, 2, 0.5),
+          ncol = 2, nrow = 1, align = "h", label.x = "test")
+
+all_fig
+```
+
+```{r}
+pdf(file = "./figs_for_coralis/ESBL_fig_all.pdf")   # The directory you want to save the file in
+
+all_fig
+
+dev.off()
+```
+
+
+```{r}
+#just beta lactams
+only_beta_lac <- add_ids %>% subset(class == "BETA-LACTAM")
+
+#do the same as above to sep repeats
+only_non_repeats_betalac <- only_beta_lac %>% subset(repeat_sample == "No")
+only_repeats_beta_lac <- only_beta_lac %>% subset(repeat_sample == "Yes")
+
+#remove by e-number
+e1_betalac <- only_non_repeats_betalac %>% subset(e_number == "E1")
+```
+
+```{r}
+#count gene hits (should only be one each)
+clean_beta_lac <- e1_betalac %>%
+  mutate(count = 1) %>%
+  select(c(participant_id, class, count, gene_symbol, e_number)) %>%
+  group_by(participant_id, class, gene_symbol, e_number) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+#join with culture data
+
+beta_lac_add_culture <- clean_beta_lac %>% left_join(culture_clean) %>%
+  select(-c(X, esbl, cre, age, ecoli_cultured)) %>%
+  mutate(all_resist = amp_resistant_isolates + tetra_resistant_isolates + trimet_resistant_isolates + cipro_resistant_isolates + ceft_resistant_isolates)
+
+#hide names for publication
+mask_names_betalac <- beta_lac_add_culture %>% full_join(esbl_rename)
+
+```
+
+```{r}
+p100 <- mask_names_betalac %>% ggplot() +
+  geom_tile(aes(x = gene_symbol, y = reorder(sample_number, -order_number), fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  scale_fill_gradientn(colors = c(pal)) +
+  scale_x_discrete(na.translate = FALSE)+
+  theme_hc() +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "left")+
+  xlab("Beta-Lactam Gene") +
+  ylab("")+
+  labs(fill = "ARG\nDetected")
+
+p100
+```
+
+```{r, fig.width=10}
+betalac_fig <- ggarrange(p100, p3, heights = c(2, 2, 0.5),
+          ncol = 2, nrow = 1, align = "h", label.x = "test")
+
+betalac_fig
+```
+```{r}
+pdf(file = "./figs_for_coralis/p6.pdf")   # The directory you want to save the file in
+
+betalac_fig
+
+dev.off()
+```
+
+
+```{r}
+#just beta lactams
+only_qui <- add_ids %>% subset(class == "QUINOLONE")
+
+#do the same as above to sep repeats
+only_non_repeats_qui <- only_qui %>% subset(repeat_sample == "No")
+only_repeats_qui <- only_qui %>% subset(repeat_sample == "Yes")
+
+#remove by e-number
+e1_qui <- only_non_repeats_qui %>% subset(e_number == "E1")
+```
+
+```{r}
+#count gene hits (should only be one each)
+clean_qui <- e1_qui %>%
+  mutate(count = 1) %>%
+  select(c(participant_id, class, count, gene_symbol, e_number)) %>%
+  group_by(participant_id, class, gene_symbol, e_number) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+#join with culture data
+
+qui_add_culture <- clean_qui %>% left_join(culture_clean) %>%
+  select(-c(X, esbl, cre, age, ecoli_cultured)) %>%
+  mutate(all_resist = amp_resistant_isolates + tetra_resistant_isolates + trimet_resistant_isolates + cipro_resistant_isolates + ceft_resistant_isolates)
+
+#hide names for publication
+mask_names_qui <- qui_add_culture %>% full_join(esbl_rename)
+
+```
+
+```{r}
+p101 <- mask_names_qui %>% ggplot() +
+  geom_tile(aes(x = gene_symbol, y = reorder(sample_number, -order_number), fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  scale_fill_gradientn(colors = c("green")) +
+  scale_x_discrete(na.translate = FALSE)+
+  theme_hc() +
+  theme(axis.text.x = element_text(angle = 90),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "left")+
+  xlab("Quinolone Gene") +
+  ylab("")+
+  labs(fill = "ARG\nDetected")
+
+p101
+```
+
+```{r, fig.width=10}
+qui_fig <- ggarrange(p101, p3, heights = c(2, 2, 0.5),
+          ncol = 2, nrow = 1, align = "h", label.x = "test")
+
+qui_fig
+```
+
+```{r}
+pdf(file = "./figs_for_coralis/p7.pdf")   # The directory you want to save the file in
+
+qui_fig
+
+dev.off()
+```
+
+
+
+```{r}
+adult_survey <- readRDS("./clean_adult_FINAL.rds")
+child_survey <- readRDS("./clean_child_FINAL.rds")
+
+esbl_rename_particpitants <- unique(e1_non_reps$participant_id) %>%
+  as_tibble() %>%
+  rename(participant_id = value) %>%
+  left_join(adult_survey)
+
+child_add <- e1_non_reps %>% left_join(child_survey)
+add_survey <- e1_non_reps %>% left_join(adult_survey) 
+
+```
+
+```{r}
+zz <- culture_clean %>% select(-age) %>% left_join(adult_survey)
+```
+
+
+
+
+
+\
+
+
+
+
+
+
+
+
+
+
+

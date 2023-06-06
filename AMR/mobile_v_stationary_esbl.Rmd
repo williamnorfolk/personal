@@ -1,0 +1,330 @@
+---
+title: "mobile_v_stationary_esbl"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggthemes)
+```
+
+```{r, include=FALSE}
+
+mash_data <- function(filenames, gsub_value){
+#mash all files from folder into a single dataframe and label with the file name
+mash_data <- tibble(file = filenames) %>%
+    mutate(data = lapply(file, read_delim)) %>%
+    mutate(data = map(data, ~ .x %>% mutate_all(as.character))) %>% #recode all columns to character
+    unnest(data) 
+
+#remove the file extension from the end (29 characters)
+mash_data$file <- substr(mash_data$file,1,nchar(mash_data$file)-25)
+mash_data$file <- gsub(gsub_value, "", mash_data$file)
+
+return(mash_data)
+}
+
+```
+
+
+```{r}
+#batch load files
+#identify file names in the folder
+stat_esbl <- list.files("./CRAP_illumina_ESBL_Stationary_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+mobile_esbl <- list.files("./CRAP_illumina_ESBL_MobileGeneticElements_AMRFinder_results", pattern="*tsv", full.names=TRUE)
+
+gsub_stat <- "^.{0,50}"
+
+gsub_mobile <- "^.{0,61}"
+
+```
+
+```{r}
+pal <- colorRampPalette(c("green", "yellow", "red"))(100)
+
+color2 <- readRDS("../metagenomics_and_ecoli_isolates/final_pal.rds")
+```
+
+
+
+```{r}
+#this one is long!
+mash_amr_stat <- mash_data(stat_esbl, gsub_stat) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_stat$participant_id <- gsub("-", "", mash_amr_stat$participant_id)
+
+
+
+
+mash_amr_mobile <- mash_data(mobile_esbl, gsub_mobile) %>%
+  select(c(file, `Gene symbol`, `Sequence name`, `Element type`, `Element subtype`, Class, Subclass)) %>%
+  rename(participant_id = file,
+         gene_symbol = `Gene symbol`,
+         sequence_name = `Sequence name`,
+         element_type = `Element type`,
+         element_subtype = `Element subtype`,
+         class = Class,
+         subclass = Subclass)
+
+mash_amr_mobile$participant_id <- gsub("-", "", mash_amr_mobile$participant_id)
+```
+
+```{r}
+stat_clean <- mash_amr_stat %>% mutate(count = 1)
+
+stat_class <- stat_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+mobile_clean <- mash_amr_mobile %>% mutate(count = 1)
+
+mobile_class <- mobile_clean %>% 
+  select(c(participant_id, class, count)) %>%
+  group_by(participant_id, class) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+```
+
+
+
+```{r}
+esbl_rename <- read_excel("../name_key_publication.xlsx", 1)
+
+esbl_rename$participant_id <- paste0("A", esbl_rename$participant_id)
+
+child_rename <- read_excel("../name_key_publication.xlsx", 2)
+
+reorder_renames <- read_excel("../name_key_publication.xlsx", 3)
+
+
+esbl_rename <- rbind(esbl_rename, child_rename) %>%
+  left_join(reorder_renames) %>%
+  group_by(participant_id, sample_number) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup() %>%
+  mutate(rep = case_when(
+    nchar(.$participant_id) == 7 ~ "2nd",
+    TRUE ~ "1st")) %>%
+  mutate(sample_number = case_when(
+    .$rep == "2nd" ~ paste0(sample_number, "-R"),
+    TRUE ~ sample_number))
+
+
+```
+
+```{r, fig.width=8}
+#11 classes  for color
+color_stat <- c("#EF43C8", "#A650E1", "#52B6EE", "#EAEE85", "#4630A2", "#52659E", "#80EB9E", "#E7C3A9", "#B88764", "#99EA79", "#C8B6F2")
+
+stat_class <- esbl_rename %>% left_join(stat_class)
+
+p1 <- stat_class %>% ggplot() +
+  geom_bar(aes(x = reorder(sample_number, order_number), y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color_stat)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 8, vjust = 0.6, hjust = 0.5),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))
+
+p1
+
+stat_class %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, order_number),  x = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample Number") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8, vjust = 0.5, hjust = 0.5),
+        axis.text.y = element_text(size = 5))+
+  scale_x_discrete(na.translate =FALSE)+
+  ggtitle("Stationary Genetic Elements-ESBLs")
+
+
+```
+
+```{r}
+
+color_mobile <- c("#EF43C8", "#52B6EE", "#EAEE85", "#52659E", "#80EB9E", "#B88764", "#99EA79", "#C8B6F2")
+
+a <- esbl_rename %>% left_join(mobile_class)
+
+
+p11 <- a %>% ggplot() +
+  geom_bar(aes(x = reorder(sample_number, order_number), y = count, fill = class), 
+  stat = "identity", drop = FALSE, width = 0.75)+  scale_fill_manual(values = color_mobile)+
+  theme_bw() +
+  xlab("Participant ID") +
+  ylab("ARG Hits Per Sample")+
+  labs(fill = "AMR Class")+
+  theme(axis.text.x = element_text(angle =90, size = 6, vjust = 0, hjust = 0.75),
+        legend.position = "right",
+        legend.text = element_text(size = 8),
+        legend.key.size = unit(0.5, "cm"))+
+  scale_y_discrete(na.translate = FALSE)
+
+p11
+
+a %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, order_number), x = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Sample Number") +
+  ylab("AMR Class")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8),
+        axis.text.y = element_text(size = 5))+
+  scale_x_discrete(na.translate = FALSE)+
+  ggtitle("Mobile Genetic Elements-ESBLs")
+```
+
+
+```{r}
+mobile_class <- a %>% mutate(type = "AMR Genes Found on Mobile Genetic Elements")
+stat_class <- stat_class %>% mutate(type = "AMR Genes Found in the Genome")
+
+combine_all <- rbind(stat_class, mobile_class)
+```
+
+```{r, fig.width=8}
+p111 <- combine_all %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, order_number), x = class, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  facet_wrap(~type)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("AMR Class") +
+  ylab("Sample Number")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =6, vjust = 0.5),
+        axis.text.y = element_text(size = 5))+
+  scale_x_discrete(na.translate = FALSE)#+
+ # ggtitle("Stationary Genetic Elements vs. Mobile Genetic Elements (ESBLs)")
+
+p111
+```
+```{r}
+pdf(file = "../figs_for_coralis/p9.pdf")   # The directory you want to save the file in
+
+p111
+
+dev.off()
+```
+
+
+```{r}
+stat_betalac <- stat_clean %>% subset(class == "BETA-LACTAM") %>% 
+  mutate(type = "Beta-Lactam Genes Found in the Genome")
+mobile_betalac <- mobile_clean %>% subset(class == "BETA-LACTAM")%>% 
+  mutate(type = "Beta-Lactam Genes Found in Mobile Genetic Elements")
+
+combine_betalac <- rbind(stat_betalac, mobile_betalac) %>%
+  select(-c(sequence_name, element_type, element_subtype, class, subclass)) %>%
+  group_by(participant_id, gene_symbol, type) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+final_betalac <- esbl_rename %>% left_join(combine_betalac)
+
+#add dummy label so they do not appear as NA
+final_betalac$type[is.na(final_betalac$type)] <- "Beta-Lactam Genes Found in the Genome"
+
+final_betalac$type <- factor(final_betalac$type, levels = c("Beta-Lactam Genes Found in the Genome", "Beta-Lactam Genes Found in Mobile Genetic Elements"))
+```
+
+```{r, fig.width=9}
+p100 <- final_betalac %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, order_number), x = gene_symbol, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  facet_wrap(~type, drop = TRUE)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Beta-Lactam Gene") +
+  ylab("Sample Number")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8, vjust = 0.5),
+        axis.text.y = element_text(size = 7))+
+  scale_x_discrete(na.translate = FALSE)
+
+p100
+```
+
+
+
+```{r}
+pdf(file = "../figs_for_coralis/p8.pdf")   # The directory you want to save the file in
+
+p100
+
+dev.off()
+```
+```{r}
+stat_qui <- stat_clean %>% subset(class == "QUINOLONE") %>% 
+  mutate(type = "Quinolone Genes Found in the Genome")
+mobile_qui <- mobile_clean %>% subset(class == "QUINOLONE")%>% 
+  mutate(type = "Quinolone Genes Found in Mobile Genetic Elements")
+
+combine_qui <- rbind(stat_qui, mobile_qui) %>%
+  select(-c(sequence_name, element_type, element_subtype, class, subclass)) %>%
+  group_by(participant_id, gene_symbol, type) %>%
+  summarize_if(is.numeric, sum) %>%
+  ungroup()
+
+final_qui <- esbl_rename %>% left_join(combine_qui)
+
+#add dummy label so they do not appear as NA
+final_qui$type[is.na(final_qui$type)] <- "Quinolone Genes Found in the Genome"
+
+final_qui$type <- factor(final_qui$type, levels = c("Quinolone Genes Found in the Genome", "Quinolone Genes Found in Mobile Genetic Elements"))
+```
+
+```{r, fig.width=9}
+p1000 <- final_qui %>% ggplot() +
+  geom_tile(aes(y = reorder(sample_number, order_number), x = gene_symbol, fill = count), 
+            color = "black", width =0.8, height = 0.8, size = 0.7)+
+  facet_wrap(~type, drop = TRUE)+
+  theme_hc() +
+  scale_fill_gradientn(colors = pal)+
+  theme_bw() +
+  xlab("Quinolone Gene") +
+  ylab("Sample Number")+
+  labs(fill = "ARG Hits\nPer Sample")+
+  theme(axis.text.x = element_text(angle =90, size =8, vjust = 0.5),
+        axis.text.y = element_text(size = 7))+
+  scale_x_discrete(na.translate = FALSE)
+
+p1000
+```
+
+
+
+```{r}
+pdf(file = "../figs_for_coralis/qui_fig_short_reads.pdf")   # The directory you want to save the file in
+
+p1000
+
+dev.off()
+```

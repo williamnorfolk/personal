@@ -1,0 +1,95 @@
+---
+title: "metabolite_abundance_figs"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+```{r}
+polar_ns <- readRDS("./pval_metabolite_abundance/iron_ns_polar.rds") %>%
+  mutate(polarity = "polar")
+nonpolar_ns <- readRDS("./pval_metabolite_abundance/iron_ns_nonpolar.rds") %>%
+  mutate(polarity = "nonpolar")
+
+all_ns_iron <- rbind(polar_ns, nonpolar_ns)
+```
+
+```{r, fig.width=11}
+all_ns_iron <- all_ns_iron %>% mutate(up_or_down = recode(up_or_down,
+                                                          "Down Regulated" = "Up Regulated Iron Deficient",
+                                                          "Up Regulated" = "Up Regulated Iron Replete"))
+
+all_ns_iron %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, iron_diff), y = log10(values), 
+                      fill = iron, color = iron)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  #subtitle = "P-value cutoff = 0.05")+
+  scale_color_discrete(guide = "none")+
+  scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+ # ggtitle("Non-Starved Iron Comparison (NSFe+/NSFe-)")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 9.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11)) 
+```
+
+```{r}
+x <- polar_ns %>% select(c(retention_time, meta_name, values, up_or_down)) %>%
+  group_by(retention_time, meta_name, up_or_down) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+y <- nonpolar_ns %>% select(c(retention_time, meta_name, values, up_or_down)) %>%
+  group_by(retention_time, meta_name, up_or_down) %>%
+  summarize_if(is.numeric, mean) %>%
+  ungroup()
+
+make <- rbind(x,y)
+
+make_up <- make %>% subset(up_or_down == "Up Regulated")
+
+write.csv(make_up, "./pval_metabolite_abundance/up_ns_iron.csv")
+```
+
+
+
+
+```{r}
+polar_s <- readRDS("./pval_metabolite_abundance/iron_s_polar.rds") %>%
+  mutate(polarity = "polar")
+nonpolar_s <- readRDS("./pval_metabolite_abundance/iron_s_nonpolar.rds") %>%
+  mutate(polarity = "nonpolar")
+
+all_s_iron <- rbind(polar_s, nonpolar_s)
+```
+
+```{r, fig.width=11}
+all_s_iron <- all_s_iron %>% mutate(up_or_down = recode(up_or_down,
+                                                          "Down Regulated" = "Up Regulated Iron Deficient",
+                                                          "Up Regulated" = "Up Regulated Iron Replete"))
+
+all_s_iron %>% ggplot() +
+  geom_boxplot(aes(x = reorder(meta_name, iron_diff), y = log10(values), 
+                      fill = iron, color = iron)) +
+  facet_wrap(~up_or_down, scales = "free")+
+  theme_hc() +
+  xlab("Metabolite Name")+
+  ylab("Log10 Relative Concentration")+
+  labs(fill = "Iron Condition")+
+  scale_color_discrete(guide = "none")+
+  scale_y_continuous(breaks = seq(3, 6, 0.5), limits = c(3, 6))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.2, hjust = 0.97, size = 9.5),
+        plot.title = element_text(size = 14),
+        axis.title = element_text(size = 12),
+        plot.subtitle = element_text(size = 12),
+        strip.text = element_text(size = 11)) 
+```
